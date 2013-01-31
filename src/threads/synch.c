@@ -71,7 +71,7 @@ sema_down (struct semaphore *sema)
   old_level = intr_disable ();
   while (sema->value == 0) 
     {
-      list_push_back (&sema->waiters, &thread_current()->syncelem);
+      list_push_back (&sema->waiters, &thread_current()->semaElem);
       thread_block ();
     }
   sema->value--;
@@ -118,9 +118,11 @@ sema_up (struct semaphore *sema)
   old_level = intr_disable ();
   sema->value++;
   if (!list_empty (&sema->waiters)) {
-    thread_unblock (list_entry (list_max (&sema->waiters, &PriCmpFn2, NULL),
-                                struct thread, syncelem));
-    list_remove((list_max (&sema->waiters, &PriCmpFn2, NULL)));
+		struct thread *waitingThread = list_entry (list_max (&sema->waiters, 
+																							 &thread_semawaiters_pri_cmp_fn,
+																							 NULL), struct thread, semaElem);
+    thread_unblock (waitingThread);
+    list_remove(&waitingThread->semaElem);
     thread_yield();
   }
   intr_set_level (old_level);
@@ -275,8 +277,9 @@ lock_release (struct lock *lock)
     	struct lock *lockHeld = list_entry (e, struct lock, elem);
     	if (!list_empty(&lockHeld->semaphore.waiters)) {
       	struct thread *maxPriThread = 
-					list_entry (list_max (&lockHeld->semaphore.waiters, &PriCmpFn2, NULL),
-											struct thread, syncelem);
+					list_entry (list_max (&lockHeld->semaphore.waiters, 
+											&thread_semawaiters_pri_cmp_fn, NULL),
+											struct thread, semaElem);
      		localMaxPriority = maxPriThread->currPriority;
       	if (localMaxPriority > maxPriority) {
         	maxPriority = localMaxPriority;

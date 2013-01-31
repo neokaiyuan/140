@@ -82,7 +82,7 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 // used to compare threads in the wait list
-static bool tickCmpFn(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+static bool tick_cmp_fn(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -223,7 +223,6 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
-  //list_push_back (&ready_list, &t->elem);
   thread_yield();
 
   return tid;
@@ -241,7 +240,7 @@ thread_block (void)
   ASSERT (!intr_context ());
   ASSERT (intr_get_level () == INTR_OFF);
 
-	mlfqs_num_ready_threads --;
+	if (thread_mlfqs) mlfqs_num_ready_threads--;
   thread_current ()->status = THREAD_BLOCKED;
 	
   schedule ();
@@ -266,10 +265,10 @@ thread_unblock (struct thread *t)
   ASSERT (t->status == THREAD_BLOCKED);
 	if (thread_mlfqs) {
 		int priority = thread_get_priority ();
-		list_push_back (&mlfqs_ready_lists[priority], &t->elem);
-    mlfqs_num_ready_threads ++;
+		list_push_back (&mlfqs_ready_lists[priority], &t->readyElem);
+    mlfqs_num_ready_threads++;
 	} else {
-		list_push_back (&ready_list, &t->elem);
+		list_push_back (&ready_list, &t->readyElem);
 	}
   t->status = THREAD_READY;
   intr_set_level (old_level);
@@ -344,9 +343,9 @@ thread_yield (void)
 	if (cur != idle_thread) {
 		if (thread_mlfqs) {
 			int priority = thread_get_priority ();
-			list_push_back (&mlfqs_ready_lists[priority], &cur->elem);
+			list_push_back (&mlfqs_ready_lists[priority], &cur->readyElem);
 		} else {
-  		list_push_back (&ready_list, &cur->elem);
+  		list_push_back (&ready_list, &cur->readyElem);
 		}
 	} 
   cur->status = THREAD_READY;
@@ -393,17 +392,17 @@ thread_mlfqs_update_all_priorities ()
     while (!list_empty (nonUpdatedThreads)) {
 		  struct thread *threadToUpdate = list_entry 
 																			((list_pop_front (nonUpdatedThreads)), 
-                                      struct thread, elem);
+                                      struct thread, readyElem);
       mlfqs_update_priority (threadToUpdate);
-      list_push_back (&updatedThreads, &threadToUpdate->elem); 
+      list_push_back (&updatedThreads, &threadToUpdate->readyElem); 
     }
 	}
   //Add back into the queue
   while (!list_empty (&updatedThreads)) {
     struct thread *updatedThread = list_entry ((list_pop_front (&updatedThreads)),
-                                            	struct thread, elem);
+                                            	struct thread, readyElem);
     list_push_back (&mlfqs_ready_lists[updatedThread->mlfqsPriority], 
-										&updatedThread->elem);
+										&updatedThread->readyElem);
   }
 }
 
@@ -480,7 +479,7 @@ thread_mlfqs_update_all_recent_cpu (void)
 		struct list_elem *e;
 		for (e = list_begin (currList); e != list_end (currList);
 				 e = list_next (e)) {
-			struct thread *t = list_entry (e, struct thread, elem);
+			struct thread *t = list_entry (e, struct thread, readyElem);
 			mlfqs_update_recent_cpu (t);
 		}
 	}
@@ -630,15 +629,20 @@ next_thread_to_run (void)
 		int i;
 		for (i = NUM_PRIORITIES - 1; i >= 0; i--) {
 			struct list currList = mlfqs_ready_lists[i];
-			if (!list_empty (&currList))
-				return list_entry (list_pop_front (&currList), struct thread, elem);
+			if (!list_empty (&currList)) {
+				struct thread *nextThread = list_entry (list_pop_front (&currList), 
+																								struct thread, readyElem);
+				return nextThread;
+			}
 		}
 		return idle_thread;
 	} else {
 		if (list_empty (&ready_list))
     	return idle_thread;
-  	struct thread *nextThread = list_entry (list_max (&ready_list, &PriCmpFn, NULL), struct thread,elem);
-		list_remove (&nextThread->elem);
+  	struct thread *nextThread = list_entry (list_max (&ready_list, 
+																						&thread_readylist_pri_cmp_fn, NULL), 
+																						struct thread, readyElem);
+		list_remove (&nextThread->readyElem);
 //	printf("this is the priority returned %i\n", nextThread->currPriority);
 		return nextThread;
 	}
@@ -727,27 +731,30 @@ allocate_tid (void)
   return tid;
 }
 //Comparison function for waitlist, compares based on tick time waiting for
-bool tickCmpFn (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+static bool
+tick_cmp_fn (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {
-  struct sleepingThread *a_sleepingThread = list_entry(a, struct sleepingThread, elem );
+  struct sleepingThread *a_sleepingThread = list_entry(a, struct sleepingThread, elem);
   struct sleepingThread *b_sleepingThread = list_entry(b, struct sleepingThread, elem);
   return a_sleepingThread->ticksNeeded < b_sleepingThread->ticksNeeded;
 }
 
 /*This function puts a thread on the wait list, called primarly from timer.c */
-void sleepThread (int64_t releaseTicks) 
+void 
+thread_sleep (int64_t releaseTicks) 
 {
   struct sleepingThread st;
   st.thread = thread_current();
   st.ticksNeeded = releaseTicks;
 	//Add struct to list
-  list_insert_ordered (&wait_list, &st.elem, &tickCmpFn, NULL);
+  list_insert_ordered (&wait_list, &st.elem, &tick_cmp_fn, NULL);
 	//Block thread, note necessary turn interrupts off, block calls scheudle which turns intr back on
   intr_disable();
   thread_block();
 }
 /*This function will move a thread off the wait list and ready to run again*/
-void wakeReadyThreads (int64_t currTicks)
+void 
+thread_wake_all_ready (int64_t currTicks)
 {	
   if (list_empty(&wait_list)) return;
 	struct list_elem *e = NULL;
@@ -765,9 +772,12 @@ void wakeReadyThreads (int64_t currTicks)
 
 /*This function is used by lists in order to compare two threads based
 on their priority level. */
-bool PriCmpFn (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
-	struct thread *a_thread = list_entry(a, struct thread, elem);
-	struct thread *b_thread = list_entry(b, struct thread, elem);
+bool 
+thread_readylist_pri_cmp_fn (const struct list_elem *a, 
+														 const struct list_elem *b, void *aux UNUSED) 
+{
+	struct thread *a_thread = list_entry(a, struct thread, readyElem);
+	struct thread *b_thread = list_entry(b, struct thread, readyElem);
   return a_thread->currPriority < b_thread->currPriority;
 	// Inequality chosen on purpose to order list in decreasing priority,
 	// and to ensure when ties occur, latest running thread is behind.
@@ -776,9 +786,11 @@ bool PriCmpFn (const struct list_elem *a, const struct list_elem *b, void *aux U
 
 /*This function is used by lists in sync to compare two threads based
 on their priority level. */
-bool PriCmpFn2 (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
-	struct thread *a_thread = list_entry(a, struct thread, syncelem);
-	struct thread *b_thread = list_entry(b, struct thread, syncelem);
+bool 
+thread_semawaiters_pri_cmp_fn (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) 
+{
+	struct thread *a_thread = list_entry(a, struct thread, semaElem);
+	struct thread *b_thread = list_entry(b, struct thread, semaElem);
   return a_thread->currPriority < b_thread->currPriority;
 	// Inequality chosen on purpose to order list in decreasing priority,
 	// and to ensure when ties occur, latest running thread is behind.
