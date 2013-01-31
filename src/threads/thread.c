@@ -11,7 +11,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
-#include "fixed-point.h" //helper functions for fixed point conversions
+#include "lib/kernel/fixed-point.h" //helper functions for fixed point conversions
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -63,17 +63,15 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
-
 /* array of ready lists for each possible priority */
 static struct list mlfqs_ready_lists[NUM_PRIORITIES];
-
 /* Average number of threads run over the past minute, stored as FP */
 int mlfqs_load_avg;
-
 int mlfqs_num_ready_threads;
+static void mlfqs_update_priority (struct thread *currThread);
+static void mlfqs_update_recent_cpu (struct thread *currThread);
 
 static void kernel_thread (thread_func *, void *aux);
-
 static void idle (void *aux UNUSED);
 static struct thread *running_thread (void);
 static struct thread *next_thread_to_run (void);
@@ -110,10 +108,11 @@ thread_init (void)
 
 	list_init (&wait_list);
 	if (thread_mlfqs) {
-		for (int i = 0; i < NUM_PRIORITIES; i++)
-			list_init (&_mlfqs_ready_lists[i]);
+		int i;
+		for (i = 0; i < NUM_PRIORITIES; i++)
+			list_init (&mlfqs_ready_lists[i]);
 	}
-	mlfqs_load_average = 0;
+	mlfqs_load_avg = 0;
 	mlfqs_num_ready_threads = 0;
 
   initial_thread = running_thread ();
@@ -266,7 +265,7 @@ thread_unblock (struct thread *t)
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
 	if (thread_mlfqs) {
-		int priority = thread_get_priority (t);
+		int priority = thread_get_priority ();
 		list_push_back (&mlfqs_ready_lists[priority], &t->elem);
     mlfqs_num_ready_threads ++;
 	} else {
@@ -344,7 +343,7 @@ thread_yield (void)
 
 	if (cur != idle_thread) {
 		if (thread_mlfqs) {
-			int priority = thread_get_priority (cur);
+			int priority = thread_get_priority ();
 			list_push_back (&mlfqs_ready_lists[priority], &cur->elem);
 		} else {
   		list_push_back (&ready_list, &cur->elem);
@@ -372,12 +371,40 @@ thread_foreach (thread_action_func *func, void *aux)
     }
 }
 
+/* Helper function used by mlfqs_update_all_priorities() */
 static void
 mlfqs_update_priority (struct thread *currThread)
 {
 	currThread->mlfqsPriority = FPToInt (IntToFP(PRI_MAX) -
 		FPDivide (currThread->recentCPU, IntToFP(4)) -
 		FPMultiply (IntToFP(currThread->niceness), IntToFP(2)));
+}
+
+/* This function is called in timer.c to regularly update priorities in mlfqs */
+void
+thread_mlfqs_update_all_priorities ()
+{
+	struct list updatedThreads;
+  list_init(&updatedThreads);
+  //Pop from the current list and update 
+	int i;
+	for (i = 0; i < NUM_PRIORITIES; i++) {
+		struct list *nonUpdatedThreads = &mlfqs_ready_lists[i];
+    while (!list_empty (nonUpdatedThreads)) {
+		  struct thread *threadToUpdate = list_entry 
+																			((list_pop_front (nonUpdatedThreads)), 
+                                      struct thread, elem);
+      mlfqs_update_priority (threadToUpdate);
+      list_push_back (&updatedThreads, &threadToUpdate->elem); 
+    }
+	}
+  //Add back into the queue
+  while (!list_empty (&updatedThreads)) {
+    struct thread *updatedThread = list_entry ((list_pop_front (&updatedThreads)),
+                                            	struct thread, elem);
+    list_push_back (&mlfqs_ready_lists[updatedThread->mlfqsPriority], 
+										&updatedThread->elem);
+  }
 }
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
@@ -422,8 +449,8 @@ thread_get_nice (void)
   return thread_current ()->niceness;
 }
 
-static void
-update_load_avg (void)
+void
+thread_mlfqs_update_load_avg (void)
 {
 	mlfqs_load_avg = FPMultiply (FractionToFP (59, 60), mlfqs_load_avg) +
 		FPMultiply (FractionToFP (1, 60), IntToFP (mlfqs_num_ready_threads));
@@ -433,25 +460,37 @@ update_load_avg (void)
 int
 thread_get_load_avg (void) 
 {
-  return 100 * FPToInt(mlfqs_load_avg);
+  return FPToInt(100 * mlfqs_load_avg);
 }
 
 static void
-update_recent_cpu (void)
+mlfqs_update_recent_cpu (struct thread *currThread)
 {
-	thread *currThread = thread_current ();
-	int coefficient = FPDivide (FPMultiply (IntToFP(2), mlfqs_load_avg),
-														 (FPMultiply (IntToFP(2), mlfqs_load_avg) +
-														 IntToFP(1)));
+	int coefficient = FPDivide (2 * mlfqs_load_avg, (2 * mlfqs_load_avg + IntToFP(1)));
 	currThread->recentCPU = FPMultiply (coefficient, currThread->recentCPU)
 												 + IntToFP (currThread->niceness);
+}
+
+void
+thread_mlfqs_update_all_recent_cpu (void)
+{
+	int i;
+	for (i = 0; i < NUM_PRIORITIES; i++) {
+		struct list *currList = &mlfqs_ready_lists[i];
+		struct list_elem *e;
+		for (e = list_begin (currList); e != list_end (currList);
+				 e = list_next (e)) {
+			struct thread *t = list_entry (e, struct thread, elem);
+			mlfqs_update_recent_cpu (t);
+		}
+	}
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */
 int
 thread_get_recent_cpu (void) 
 {
-  return 100 * FPToInt(thread_current()->recentCPU);
+  return FPToInt (100 * thread_current()->recentCPU);
 }
 
 /* Idle thread.  Executes when no other thread is ready to run.
@@ -588,7 +627,8 @@ static struct thread *
 next_thread_to_run (void) 
 {
   if (thread_mlfqs) {
-		for (int i = NUM_PRIORITIES - 1; i >= 0; i--) {
+		int i;
+		for (i = NUM_PRIORITIES - 1; i >= 0; i--) {
 			struct list currList = mlfqs_ready_lists[i];
 			if (!list_empty (&currList))
 				return list_entry (list_pop_front (&currList), struct thread, elem);

@@ -147,9 +147,12 @@ void thread_yield (void);
 
 /*Our functions written for thread.h */
 void sleepThread (int64_t releaseTicks);
-void wakeReadyThreads(int64_t currTicks);
+void wakeReadyThreads (int64_t currTicks);
 bool PriCmpFn (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 bool PriCmpFn2 (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+void thread_mlfqs_update_load_avg (void);
+void thread_mlfqs_update_all_recent_cpu (void);
+void thread_mlfqs_update_all_priorities (void);
 
 /* Performs some operation on thread t, given auxiliary data AUX. */
 typedef void thread_action_func (struct thread *t, void *aux);
