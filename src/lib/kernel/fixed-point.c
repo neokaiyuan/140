@@ -10,7 +10,7 @@ IntToFP (int num)
 int 
 FractionToFP (int numer, int denom) 
 {
-  return IntToFP(numer) * IntToFP(denom) / FP_CONVERSION_CONST;
+  return FPDivide (IntToFP(numer), IntToFP(denom));
 }
 
 /* Converts a fixed point to its integer representation. May truncate */
@@ -25,11 +25,11 @@ FPToInt (int fp)
 int 
 FPMultiply (int fp1, int fp2) 
 {
-  return ((int64_t) fp1) * fp2 / FP_CONVERSION_CONST;
+  return (((int64_t) fp1) * fp2) / FP_CONVERSION_CONST;
 }
 
 int 
 FPDivide (int fp1, int fp2) 
 {
-  return (((int64_t) fp1) / fp2) * FP_CONVERSION_CONST;
+  return ((int64_t) fp1) * FP_CONVERSION_CONST / fp2;
 }

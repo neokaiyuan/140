@@ -113,7 +113,7 @@ thread_init (void)
 			list_init (&mlfqs_ready_lists[i]);
 	}
 	mlfqs_load_avg = 0;
-	mlfqs_num_ready_threads = 0;
+	mlfqs_num_ready_threads = 1; // we set the initial thread to one
 
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
@@ -240,7 +240,9 @@ thread_block (void)
   ASSERT (!intr_context ());
   ASSERT (intr_get_level () == INTR_OFF);
 
-	if (thread_mlfqs) mlfqs_num_ready_threads--;
+	if (thread_mlfqs) {
+    mlfqs_num_ready_threads--;
+  }
   thread_current ()->status = THREAD_BLOCKED;
 	
   schedule ();
@@ -374,9 +376,12 @@ thread_foreach (thread_action_func *func, void *aux)
 static void
 mlfqs_update_priority (struct thread *currThread)
 {
-	currThread->mlfqsPriority = FPToInt (IntToFP(PRI_MAX) -
+	int newPriority = FPToInt (IntToFP(PRI_MAX) -
 		FPDivide (currThread->recentCPU, IntToFP(4)) -
 		FPMultiply (IntToFP(currThread->niceness), IntToFP(2)));
+	if (newPriority > PRI_MAX) newPriority = PRI_MAX;
+	else if (newPriority < PRI_MIN) newPriority = PRI_MIN;
+	currThread->mlfqsPriority = newPriority;
 }
 
 /* This function is called in timer.c to regularly update priorities in mlfqs */
@@ -451,6 +456,7 @@ thread_get_nice (void)
 void
 thread_mlfqs_update_load_avg (void)
 {
+  ASSERT (mlfqs_num_ready_threads >=0);
 	mlfqs_load_avg = FPMultiply (FractionToFP (59, 60), mlfqs_load_avg) +
 		FPMultiply (FractionToFP (1, 60), IntToFP (mlfqs_num_ready_threads));
 }
