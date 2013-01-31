@@ -87,11 +87,15 @@ struct thread
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
-    int priority;                       /* Priority. */
+    int origPriority;                   /* Origonal Priority Given. */
+    int currPriority;                   /* Current priority of the thread*/
     struct list_elem allelem;           /* List element for all threads list. */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
+
+    /* Used exculsively by synch.c*/
+    struct list_elem syncelem;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -100,7 +104,23 @@ struct thread
 
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
+
+		//TO CHANGE:
+		// ADD A LIST OF LOCKS THAT THIS THREAD IS CURRENTLY HOLDING
+		// SO THAT WE CAN ITERATE THROUGH THEM TO FIND THE HIGHEST PRIORITY
+		// AFTER RELEASING A LOCK
+		// THIS MEANS IN LOCK ACQUIRE WE ADD TO LIST, AND LOCK RELEASE WE REMOVE IT
+		struct list locksHeld;		
+		struct lock *lockDesired;
+
   };
+
+/* defines the elements stored in wait_list */
+struct sleepingThread {
+	struct list_elem elem;
+	int64_t ticksNeeded;
+	struct thread *thread;
+};
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
@@ -125,6 +145,12 @@ const char *thread_name (void);
 
 void thread_exit (void) NO_RETURN;
 void thread_yield (void);
+
+/*Our functions written for thread.h */
+void sleepThread (int64_t releaseTicks);
+void wakeReadyThreads(int64_t currTicks);
+bool PriCmpFn (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
+bool PriCmpFn2 (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 
 /* Performs some operation on thread t, given auxiliary data AUX. */
 typedef void thread_action_func (struct thread *t, void *aux);
