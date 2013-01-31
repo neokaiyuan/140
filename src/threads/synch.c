@@ -73,7 +73,6 @@ sema_down (struct semaphore *sema)
     {
       list_push_back (&sema->waiters, &thread_current()->syncelem);
       thread_block ();
-     // list_remove(&thread_current()->syncelem); //NEW DEVON AFTER OH
     }
   sema->value--;
   intr_set_level (old_level);
@@ -121,7 +120,6 @@ sema_up (struct semaphore *sema)
   if (!list_empty (&sema->waiters)) {
     thread_unblock (list_entry (list_max (&sema->waiters, &PriCmpFn2, NULL),
                                 struct thread, syncelem));
-    //Removes thread woken up from sema list
     list_remove((list_max (&sema->waiters, &PriCmpFn2, NULL)));
     thread_yield();
   }
@@ -206,7 +204,6 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
  	
-	// turn off interrupts
 	old_level = intr_disable();
 
   //Priority Donation	
@@ -217,7 +214,6 @@ lock_acquire (struct lock *lock)
 		lockWanter->lockDesired = lock;
     while (lockWanter->lockDesired != NULL) {	
 			lockHolder = lockWanter->lockDesired->holder;
-			ASSERT (lockHolder->currPriority <= lockWanter->currPriority);
 			if (lockHolder->currPriority < lockWanter->currPriority) {
 					lockHolder->currPriority = lockWanter->currPriority;
 			} else {
@@ -226,14 +222,11 @@ lock_acquire (struct lock *lock)
 			lockWanter = lockHolder;
 		}
 	}
-  //Puts thread that got donated to last on the ready queue
 	
   sema_down (&lock->semaphore);
-	// to keep track of locks this thread holds
   list_push_back (&thread_current()->locksHeld, &lock->elem);
   lock->holder = thread_current ();	
-  //Indicate thread is no longer waiting on a lock
-  thread_current()->lockDesired = NULL;
+  lock->holder->lockDesired = NULL;
   intr_set_level (old_level);
 }
 
@@ -273,18 +266,21 @@ lock_release (struct lock *lock)
   struct list *locksHeld = &thread_current()->locksHeld;
   int maxPriority = thread_current()->origPriority;
   int localMaxPriority;
+
   list_remove (&lock->elem);	// keep track of locks this thread holds
   for (e = list_begin (locksHeld); e != list_end (locksHeld);
 			                   e = list_next (e))
   {
     struct lock *lockHeld = list_entry (e, struct lock, elem);
-    if (!list_empty(&lockHeld->semaphore.waiters)){
-      struct thread *maxPriThread = list_entry (list_max (&lockHeld->semaphore.waiters,&PriCmpFn2,                                                                 NULL), struct thread, syncelem);
+    if (!list_empty(&lockHeld->semaphore.waiters)) {
+      struct thread *maxPriThread = 
+				list_entry (list_max (&lockHeld->semaphore.waiters, &PriCmpFn2, NULL),
+										struct thread, syncelem);
       localMaxPriority = maxPriThread->currPriority;
       if (localMaxPriority > maxPriority) {
         maxPriority = localMaxPriority;
       }
-     }
+		}
   }
   thread_current()->currPriority = maxPriority;
   sema_up (&lock->semaphore);

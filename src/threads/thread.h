@@ -23,6 +23,7 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+#define NUM_PRIORITIES 64								/* number of priorities */
 
 /* A kernel thread or user process.
 
@@ -88,7 +89,7 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     int origPriority;                   /* Origonal Priority Given. */
-    int currPriority;                   /* Current priority of the thread*/
+    int currPriority;                   /* Current priority of the thread */
     struct list_elem allelem;           /* List element for all threads list. */
 
     /* Shared between thread.c and synch.c. */
@@ -105,14 +106,12 @@ struct thread
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
 
-		//TO CHANGE:
-		// ADD A LIST OF LOCKS THAT THIS THREAD IS CURRENTLY HOLDING
-		// SO THAT WE CAN ITERATE THROUGH THEM TO FIND THE HIGHEST PRIORITY
-		// AFTER RELEASING A LOCK
-		// THIS MEANS IN LOCK ACQUIRE WE ADD TO LIST, AND LOCK RELEASE WE REMOVE IT
 		struct list locksHeld;		
 		struct lock *lockDesired;
 
+		int mlfqsPriority;									/* Priority used in MLFQS implementation */
+		int niceness;												/* Factor used to determine priority */
+		int recentCPU;											/* Recent CPU usage stored as FP*/
   };
 
 /* defines the elements stored in wait_list */
