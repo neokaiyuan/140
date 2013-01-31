@@ -265,7 +265,7 @@ thread_unblock (struct thread *t)
   ASSERT (t->status == THREAD_BLOCKED);
 	if (thread_mlfqs) {
 		int priority = thread_get_priority ();
-		list_push_back (&mlfqs_ready_lists[priority], &t->readyElem);
+		list_push_back (&mlfqs_ready_lists[priority], &t->mlfqsReadyElem);
     mlfqs_num_ready_threads++;
 	} else {
 		list_push_back (&ready_list, &t->readyElem);
@@ -343,7 +343,7 @@ thread_yield (void)
 	if (cur != idle_thread) {
 		if (thread_mlfqs) {
 			int priority = thread_get_priority ();
-			list_push_back (&mlfqs_ready_lists[priority], &cur->readyElem);
+			list_push_back (&mlfqs_ready_lists[priority], &cur->mlfqsReadyElem);
 		} else {
   		list_push_back (&ready_list, &cur->readyElem);
 		}
@@ -392,17 +392,17 @@ thread_mlfqs_update_all_priorities ()
     while (!list_empty (nonUpdatedThreads)) {
 		  struct thread *threadToUpdate = list_entry 
 																			((list_pop_front (nonUpdatedThreads)), 
-                                      struct thread, readyElem);
+                                      struct thread, mlfqsReadyElem);
       mlfqs_update_priority (threadToUpdate);
-      list_push_back (&updatedThreads, &threadToUpdate->readyElem); 
+      list_push_back (&updatedThreads, &threadToUpdate->mlfqsReadyElem); 
     }
 	}
   //Add back into the queue
   while (!list_empty (&updatedThreads)) {
     struct thread *updatedThread = list_entry ((list_pop_front (&updatedThreads)),
-                                            	struct thread, readyElem);
+                                            	struct thread, mlfqsReadyElem);
     list_push_back (&mlfqs_ready_lists[updatedThread->mlfqsPriority], 
-										&updatedThread->readyElem);
+										&updatedThread->mlfqsReadyElem);
   }
 }
 
@@ -479,7 +479,7 @@ thread_mlfqs_update_all_recent_cpu (void)
 		struct list_elem *e;
 		for (e = list_begin (currList); e != list_end (currList);
 				 e = list_next (e)) {
-			struct thread *t = list_entry (e, struct thread, readyElem);
+			struct thread *t = list_entry (e, struct thread, mlfqsReadyElem);
 			mlfqs_update_recent_cpu (t);
 		}
 	}
@@ -631,7 +631,7 @@ next_thread_to_run (void)
 			struct list currList = mlfqs_ready_lists[i];
 			if (!list_empty (&currList)) {
 				struct thread *nextThread = list_entry (list_pop_front (&currList), 
-																								struct thread, readyElem);
+																								struct thread, mlfqsReadyElem);
 				return nextThread;
 			}
 		}
@@ -734,8 +734,8 @@ allocate_tid (void)
 static bool
 tick_cmp_fn (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {
-  struct sleepingThread *a_sleepingThread = list_entry(a, struct sleepingThread, elem);
-  struct sleepingThread *b_sleepingThread = list_entry(b, struct sleepingThread, elem);
+  struct sleepingThread *a_sleepingThread = list_entry(a, struct sleepingThread, waitElem);
+  struct sleepingThread *b_sleepingThread = list_entry(b, struct sleepingThread, waitElem);
   return a_sleepingThread->ticksNeeded < b_sleepingThread->ticksNeeded;
 }
 
@@ -747,7 +747,7 @@ thread_sleep (int64_t releaseTicks)
   st.thread = thread_current();
   st.ticksNeeded = releaseTicks;
 	//Add struct to list
-  list_insert_ordered (&wait_list, &st.elem, &tick_cmp_fn, NULL);
+  list_insert_ordered (&wait_list, &st.waitElem, &tick_cmp_fn, NULL);
 	//Block thread, note necessary turn interrupts off, block calls scheudle which turns intr back on
   intr_disable();
   thread_block();
@@ -759,9 +759,9 @@ thread_wake_all_ready (int64_t currTicks)
   if (list_empty(&wait_list)) return;
 	struct list_elem *e = NULL;
   for (e = list_begin(&wait_list); e != list_end(&wait_list); e = list_next (e)) {
-    struct sleepingThread *st = list_entry (e, struct sleepingThread, elem);
+    struct sleepingThread *st = list_entry (e, struct sleepingThread, waitElem);
     if (st->ticksNeeded <= currTicks) {
-			list_remove (&st->elem);
+			list_remove (&st->waitElem);
       thread_unblock (st->thread);
 			//Thread_unblock() called but not calling yield because this fucniton is explicityly called from the timer interrupt handler, will schedule next anyways
     } else {  // this indicates there are no more threads ready to run
@@ -789,8 +789,8 @@ on their priority level. */
 bool 
 thread_semawaiters_pri_cmp_fn (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) 
 {
-	struct thread *a_thread = list_entry(a, struct thread, semaElem);
-	struct thread *b_thread = list_entry(b, struct thread, semaElem);
+	struct thread *a_thread = list_entry(a, struct thread, semaWaitElem);
+	struct thread *b_thread = list_entry(b, struct thread, semaWaitElem);
   return a_thread->currPriority < b_thread->currPriority;
 	// Inequality chosen on purpose to order list in decreasing priority,
 	// and to ensure when ties occur, latest running thread is behind.

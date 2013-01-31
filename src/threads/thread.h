@@ -88,15 +88,7 @@ struct thread
     enum thread_status status;          /* Thread state. */
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
-    int origPriority;                   /* Origonal Priority Given. */
-    int currPriority;                   /* Current priority of the thread */
     struct list_elem allelem;           /* List element for all threads list. */
-
-    /* Used in thread.c for ready_list */
-    struct list_elem readyElem;              /* List element. */
-
-    /* Used in synch.c for sema->waiters */
-    struct list_elem semaElem;
 
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
@@ -106,17 +98,26 @@ struct thread
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
 
+    int origPriority;                   /* Origonal Priority Given. */
+    int currPriority;                   /* Current priority of the thread */
+    /* Used in thread.c for ready_list */
+    struct list_elem readyElem;         /* List element. */
+    /* Used in synch.c for sema->waiters */
+    struct list_elem semaWaitElem;
+
 		struct list locksHeld;		
 		struct lock *lockDesired;
 
 		int mlfqsPriority;									/* Priority used in MLFQS implementation */
 		int niceness;												/* Factor used to determine priority */
 		int recentCPU;											/* Recent CPU usage stored as FP*/
+		/* Used for mlfqs priority lists */
+		struct list_elem mlfqsReadyElem;
   };
 
 /* defines the elements stored in wait_list */
 struct sleepingThread {
-	struct list_elem elem;
+	struct list_elem waitElem;
 	int64_t ticksNeeded;
 	struct thread *thread;
 };
