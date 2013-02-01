@@ -437,7 +437,7 @@ void
 thread_mlfqs_update_load_avg (void)
 {
 	mlfqs_load_avg = FPMultiply (FractionToFP (59, 60), mlfqs_load_avg) +
-		FPMultiply (FractionToFP (1, 60), IntToFP (mlfqs_num_ready_threads));
+		FractionToFP (1, 60) * mlfqs_num_ready_threads;
 }
 
 /* Returns 100 times the system load average. */
