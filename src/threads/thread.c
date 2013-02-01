@@ -61,7 +61,7 @@ static long long user_ticks;    /* # of timer ticks in user programs. */
 /* Scheduling. */
 #define TIME_SLICE 4            /* # of timer ticks to give each thread. */
 static unsigned thread_ticks;   /* # of timer ticks since last yield. */
-
+bool idleRunning;
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
@@ -112,7 +112,7 @@ thread_init (void)
 		mlfqs_load_avg = 0;
 		mlfqs_num_ready_threads = 0; // we set the initial thread to one
 	}
-
+  idleRunning= false;
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
   initial_thread->status = THREAD_RUNNING;
@@ -321,6 +321,9 @@ thread_exit (void)
      when it calls thread_schedule_tail(). */
   intr_disable ();
   list_remove (&thread_current()->allelem);
+	//list_remove (&thread_current()->readyElem);
+	//list_remove (&thread_current()->timerWaitElem);
+	//list_remove (&thread_current()->semaWaitElem);
   thread_current ()->status = THREAD_DYING;
   schedule ();
   NOT_REACHED ();
@@ -382,12 +385,8 @@ thread_mlfqs_update_all_priorities ()
   for (e = list_begin(&all_list); e != list_end(&all_list);
        e = list_next(e)) {
     struct thread *t = list_entry (e, struct thread, allelem);
-    if (t->status == THREAD_READY && t != idle_thread) {
-      list_remove (&t->readyElem);
+    if (t != idle_thread) {
       mlfqs_update_priority (t);
-      list_push_back (&ready_list, &t->readyElem);
-    } else if (t != idle_thread) {
-      mlfqs_update_priority(t);
     }
   } 
 }
@@ -435,9 +434,11 @@ thread_get_nice (void)
 
 void
 thread_mlfqs_update_load_avg (void)
-{
+{ 
+  int numReadyThreads = list_size(&ready_list);
+  if (!idleRunning) numReadyThreads++;
 	mlfqs_load_avg = FPMultiply (FractionToFP (59, 60), mlfqs_load_avg) +
-		FractionToFP (1, 60) * mlfqs_num_ready_threads;
+		FractionToFP (1, 60) * numReadyThreads;
 }
 
 /* Returns 100 times the system load average. */
@@ -607,8 +608,11 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
-	if (list_empty (&ready_list))
+	if (list_empty (&ready_list)) {
+    idleRunning = true;
    	return idle_thread;
+  }
+    idleRunning = false;
   struct thread *nextThread = list_entry (list_max (&ready_list, 
 																					&thread_readylist_pri_cmp_fn, NULL), 
 																					struct thread, readyElem);
