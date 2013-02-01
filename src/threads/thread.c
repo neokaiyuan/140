@@ -33,7 +33,6 @@ static struct list ready_list;
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
 
-// we added this
 /* list that keeps track fo waiting threads */
 static struct list wait_list;
 
@@ -82,8 +81,6 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
-// used to compare threads in the wait list
-static bool tick_cmp_fn(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -700,7 +697,7 @@ allocate_tid (void)
   return tid;
 }
 //Comparison function for waitlist, compares based on tick time waiting for
-static bool
+bool
 tick_cmp_fn (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {
   struct thread *a_thread = list_entry(a, struct thread, timerWaitElem);

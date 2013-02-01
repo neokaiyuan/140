@@ -141,6 +141,7 @@ void thread_yield (void);
 /*Our functions written for thread.h */
 void thread_sleep (int64_t releaseTicks);
 void thread_wake_all_ready (int64_t currTicks);
+bool tick_cmp_fn(const struct list_elem *a, const struct list_elem *b, void *aux);
 bool thread_readylist_pri_cmp_fn (const struct list_elem *a, 
 																	const struct list_elem *b, void *aux UNUSED);
 bool thread_semawaiters_pri_cmp_fn (const struct list_elem *a, 
