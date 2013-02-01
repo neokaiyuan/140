@@ -265,6 +265,7 @@ thread_unblock (struct thread *t)
   ASSERT (t->status == THREAD_BLOCKED);
 
 	list_push_back (&ready_list, &t->readyElem);
+
 	if (thread_mlfqs && t != idle_thread) 
 		mlfqs_num_ready_threads++;
   t->status = THREAD_READY;
@@ -369,7 +370,8 @@ mlfqs_update_priority (struct thread *currThread)
 										- currThread->niceness * 2;
 	if (newPriority > PRI_MAX) newPriority = PRI_MAX;
 	else if (newPriority < PRI_MIN) newPriority = PRI_MIN;
-	currThread->currPriority = newPriority;
+	if (currThread != idle_thread)
+		currThread->currPriority = newPriority;
 }
 
 /* This function is called in timer.c to regularly update priorities in mlfqs */
@@ -557,26 +559,25 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
 	
-  /*Init the thread's locks held list */
 	list_init (&t->locksHeld);
-  /* Indicate not waiting on a lock yet */
   t->lockDesired = NULL;
+
 	if (thread_mlfqs) {
 		if (t == initial_thread) {
-			t->currPriority = PRI_MAX;
+			t->currPriority = PRI_DEFAULT;
 			t->niceness = 0;
-			t->recentCPU = 0;
+		} else if (t == idle_thread) {
+			t->currPriority = PRI_MIN;
+			t->niceness = 0;
 		} else {
 			t->currPriority = thread_current ()->currPriority;
 			t->niceness = thread_current ()->niceness;	
-			t->recentCPU = 0;
 		}	
+		t->recentCPU = 0;
 	} else {
-		//Set priority of the thread
   	t->currPriority = priority;
   	t->origPriority = priority;
 	}
-
 
   t->magic = THREAD_MAGIC;
 
@@ -714,16 +715,16 @@ thread_sleep (int64_t ticksToWake)
 	struct thread *currThread = thread_current ();
   currThread->ticksToWake = ticksToWake;
   list_insert_ordered (&wait_list, &currThread->timerWaitElem, &tick_cmp_fn, NULL);
-	//note necessary turn interrupts off, block calls scheudle which turns intr back on
   thread_block();
+	intr_enable();
 }
 /*This function will move a thread off the wait list and ready to run again*/
 void 
 thread_wake_all_ready (int64_t currTicks)
 {	
-  if (list_empty(&wait_list)) return;
+  if (list_empty (&wait_list)) return;
 	struct list_elem *e = NULL;
-  for (e = list_begin(&wait_list); e != list_end(&wait_list); e = list_next (e)) {
+  for (e = list_begin (&wait_list); e != list_end (&wait_list); e = list_next (e)) {
     struct thread *t = list_entry (e, struct thread, timerWaitElem);
     if (t->ticksToWake <= currTicks) {
 			list_remove (&t->timerWaitElem);
