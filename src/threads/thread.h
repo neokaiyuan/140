@@ -100,7 +100,7 @@ struct thread
 
 		int64_t ticksToWake;								/* stores the time at which to wake */
 
-    int origPriority;                   /* Only used in priority donation */
+    int basePriority;                   /* Only used in priority donation */
     int currPriority;                   /* Used in both priority donation and mlfqs */
 
     struct list_elem readyElem;         /* Used for normal and mlfqs ready_lists */

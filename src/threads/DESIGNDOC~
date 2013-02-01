@@ -147,30 +147,7 @@ make sense to store threads in one file and access them in another.
 >> B3: How do you ensure that the highest priority thread waiting for
 >> a lock, semaphore, or condition variable wakes up first?
 
-We ensure the highest priority waiting on a semaphore waits up first by
-maintaing a sort list of threads that are waiting on each semaphore and
-extrating max in sema_up to push into the ready list.
-
-We ensure the highest priority lock waiting on a semaphore wakes up first
-by having them rely on locks. The order of the lock being acquired is identical
-to that of the the semaphore being acquired thus, if threads waiting on a semaphore
-wake up in highest priority first order -> threads waiting on a lock
-wake up in highest priority first order.
-
-Finally, we ensure the highest priority thread on a conidtion variable 
-wakes up first by keep a sorted list of semaphores. A condition variables
-forces threads to wait by giving each thread a semaphore init-ed to 0
-and then forcing them to sema_down on that semaphore. Thus, they
-cannot wait until someone calls sema_up. The condition variable struct
-stores a list of these semaphores. When signal is called, we iterate 
-through this list and wake up the thread with the highest priority, ie.
-we sema-up that semaphore and remove it from the list. With Broadcast,
-since all threads are woken up, a working priority scheduler, which
-choose the correct 'Ready' thready to schedule next will run the
-thread with the highest priority that was waiting on the conditioned
-variable first and thus it will acquire the needed lock first and thus
-will run first.
-
+scheduler holds a sorted list
 
 >> B4: Describe the sequence of events when a call to lock_acquire()
 >> causes a priority donation.  How is nested donation handled?
@@ -193,7 +170,7 @@ schedule
 >> how your implementation avoids it.  Can you use a lock to avoid
 >> this race?
 
-One could have the case where one thread tries to change priority of another 
+could have the case where one thread tries to change priority of another 
 thread just before that thread calls thread_set_priority() internally.
 This would result in a race condition where the receiving thread may
 revert back to another priority right after a higher priority has been
@@ -222,13 +199,8 @@ to mitigate this we can put priority donation in sema_down.
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
-Added to thread struct in thread.h
 
-int niceness  
-Keeps track of the nice value for each thread
 
-int recentCPU
-Keeps track of amount of CPU time each thread received recently
 
 
 ---- ALGORITHMS ----
@@ -241,28 +213,23 @@ Keeps track of amount of CPU time each thread received recently
 timer  recent_cpu    priority   thread
 ticks   A   B   C   A   B   C   to run
 -----  --  --  --  --  --  --   ------
- 0      0   0   0  63  61  59     A
- 4	4   0   0  62  61  59     A
- 8	8   0   0  61  61  59     B
-12	8   4   0  61  60  59     A
-16	12  4   0  60  60  59     B
-20      12  8   0  60  59  59     A
-24	16  8   0  59  59  59     C
-28	16  8   4  59  59  58     B
-32	16  12  4  59  58  58     A
-36	20  12  4  58  58  58     C
+ 0      0   0   0  63   
+ 4
+ 8
+12
+16
+20
+24
+28
+32
+36
 
 >> C3: Did any ambiguities in the scheduler specification make values
 >> in the table uncertain?  If so, what rule did you use to resolve
 >> them?  Does this match the behavior of your scheduler?
 
-Yes, when two threads had the same priority. We resolved this conflict by
-choosing the thread that was least recently run, which matches the round robin
-behavior of our scheduler. 
-
 >> C4: How is the way you divided the cost of scheduling between code
 >> inside and outside interrupt context likely to affect performance?
-
 
 ---- RATIONALE ----
 
@@ -277,19 +244,6 @@ behavior of our scheduler.
 >> abstraction layer for fixed-point math, that is, an abstract data
 >> type and/or a set of functions or macros to manipulate fixed-point
 >> numbers, why did you do so?  If not, why not?
-
-Clarity. We believe that adding a layer of abstraction makes our code
-easier to read and easier to understand. It also decreases the size of
-our code. A few of the operations on fixed points such as mulitplication
-between two fixed-point numbers as well as the conversion from an integer to
-a fixed point, are repated several times. The choice to create an API
-for fixed points meant that we only would need to write these functions
-one time and then apply them wherever necessary. Healthy side
-effects of writing these functions only once are:  a) less chance of errors
-b) increased flexibility of code. To change any fixed point operations
-we need only change the .c file of the abstraction layer and volia
-it is changed every time it is used.
-
 
 			   SURVEY QUESTIONS
 			   ================

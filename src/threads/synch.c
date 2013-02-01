@@ -269,8 +269,9 @@ lock_release (struct lock *lock)
 
   list_remove (&lock->elem);	// keep track of locks this thread holds
 
+	/* Resetting one's priority */
 	if (!thread_mlfqs) {
-  	int maxPriority = thread_current()->origPriority;
+  	int maxPriority = thread_current()->basePriority;
   	int localMaxPriority;
   	for (e = list_begin (locksHeld); e != list_end (locksHeld);
 				 e = list_next (e)) {
@@ -375,18 +376,18 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   ASSERT (lock_held_by_current_thread (lock));
 
   if (!list_empty (&cond->waiters)) {
-   struct semaphore_elem *highestPriSem = NULL;
+   struct semaphore_elem *highestPriSema = NULL;
    struct list_elem *e;
    for (e = list_begin (&cond->waiters); e!= list_end(&cond->waiters); e = list_next(e)) {
-      struct semaphore_elem *checking = list_entry (e, struct semaphore_elem, elem); 
-      if (highestPriSem == NULL) {
-         highestPriSem = checking;
-      } else if (checking->priority > highestPriSem->priority) {
-         highestPriSem = checking; 
+      struct semaphore_elem *currElem = list_entry (e, struct semaphore_elem, elem); 
+      if (highestPriSema == NULL) {
+         highestPriSema = currElem;
+      } else if (currElem->priority > highestPriSema->priority) {
+         highestPriSema = currElem; 
       } 
     }
-  list_remove (&highestPriSem->elem);
-  sema_up (&highestPriSem->semaphore);
+  list_remove (&highestPriSema->elem);
+  sema_up (&highestPriSema->semaphore);
   }
 }
 /* Wakes up all threads, if any, waiting on COND (protected by
