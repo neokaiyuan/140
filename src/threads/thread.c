@@ -251,7 +251,6 @@ thread_block (void)
     	mlfqs_num_ready_threads--;
 
 	debug2++;
-	printf("inside thread_block %d\n", debug2);
   thread_current ()->status = THREAD_BLOCKED;
   schedule ();
 }
@@ -267,7 +266,6 @@ thread_block (void)
 void
 thread_unblock (struct thread *t) 
 {
-  printf("inside thread_unblock\n");
   enum intr_level old_level;
 
   ASSERT (is_thread (t));
@@ -515,7 +513,6 @@ idle (void *idle_started_ UNUSED)
   for (;;) 
     {
       /* Let someone else run. */
-      printf("idle thread running\n");
       intr_disable ();
       thread_block ();
 
@@ -752,7 +749,6 @@ thread_sleep (int64_t ticksToWake)
   
   intr_disable();
   debug++;
-	printf("got to thread_sleep %d\n", debug);
 	struct thread *currThread = thread_current ();
   currThread->ticksToWake = ticksToWake;
   list_insert_ordered (&wait_list, &currThread->waitElem, &tick_cmp_fn, NULL);
