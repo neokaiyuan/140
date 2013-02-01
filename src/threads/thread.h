@@ -108,7 +108,6 @@ struct thread
 		struct list locksHeld;		
 		struct lock *lockDesired;
 
-		int mlfqsPriority;									/* Priority used in MLFQS implementation */
 		int niceness;												/* Factor used to determine priority */
 		int recentCPU;											/* Recent CPU usage stored as FP*/
 		/* Used for mlfqs priority lists */

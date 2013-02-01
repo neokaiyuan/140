@@ -113,7 +113,7 @@ thread_init (void)
 			list_init (&mlfqs_ready_lists[i]);
 	}
 	mlfqs_load_avg = 0;
-	mlfqs_num_ready_threads = 1; // we set the initial thread to one
+	mlfqs_num_ready_threads = 0; // we set the initial thread to one
 
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
@@ -241,6 +241,9 @@ thread_block (void)
   ASSERT (intr_get_level () == INTR_OFF);
 
 	if (thread_mlfqs) {
+    //printf("About to decrement num ready threads: %d\n", mlfqs_num_ready_threads);
+    if (thread_current() == idle_thread); //printf ("idle\n");
+    else
     mlfqs_num_ready_threads--;
   }
   thread_current ()->status = THREAD_BLOCKED;
@@ -268,7 +271,7 @@ thread_unblock (struct thread *t)
 	if (thread_mlfqs) {
 		int priority = thread_get_priority ();
 		list_push_back (&mlfqs_ready_lists[priority], &t->mlfqsReadyElem);
-    mlfqs_num_ready_threads++;
+    if (t != idle_thread) mlfqs_num_ready_threads++;
 	} else {
 		list_push_back (&ready_list, &t->readyElem);
 	}
@@ -381,7 +384,7 @@ mlfqs_update_priority (struct thread *currThread)
 		FPMultiply (IntToFP(currThread->niceness), IntToFP(2)));
 	if (newPriority > PRI_MAX) newPriority = PRI_MAX;
 	else if (newPriority < PRI_MIN) newPriority = PRI_MIN;
-	currThread->mlfqsPriority = newPriority;
+	currThread->currPriority = newPriority;
 }
 
 /* This function is called in timer.c to regularly update priorities in mlfqs */
@@ -406,7 +409,7 @@ thread_mlfqs_update_all_priorities ()
   while (!list_empty (&updatedThreads)) {
     struct thread *updatedThread = list_entry ((list_pop_front (&updatedThreads)),
                                             	struct thread, mlfqsReadyElem);
-    list_push_back (&mlfqs_ready_lists[updatedThread->mlfqsPriority], 
+    list_push_back (&mlfqs_ready_lists[updatedThread->currPriority], 
 										&updatedThread->mlfqsReadyElem);
   }
 }
@@ -435,7 +438,6 @@ thread_set_priority (int new_priority)
 int
 thread_get_priority (void) 
 {
-  if (thread_mlfqs) return thread_current ()->mlfqsPriority;
 	return thread_current ()->currPriority;
 }
 
@@ -456,7 +458,6 @@ thread_get_nice (void)
 void
 thread_mlfqs_update_load_avg (void)
 {
-  ASSERT (mlfqs_num_ready_threads >=0);
 	mlfqs_load_avg = FPMultiply (FractionToFP (59, 60), mlfqs_load_avg) +
 		FPMultiply (FractionToFP (1, 60), IntToFP (mlfqs_num_ready_threads));
 }
@@ -465,6 +466,8 @@ thread_mlfqs_update_load_avg (void)
 int
 thread_get_load_avg (void) 
 {
+  //printf("Ths current load average is: %d\n",   FPToInt( 100 * mlfqs_load_avg));
+  //printf("This is the threads num waiting threads %d\n", mlfqs_num_ready_threads);
   return FPToInt(100 * mlfqs_load_avg);
 }
 
@@ -585,23 +588,26 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
 	
-//Set priority of the thread
-  t->currPriority = priority;
-  t->origPriority = priority;
   /*Init the thread's locks held list */
 	list_init (&t->locksHeld);
   /* Indicate not waiting on a lock yet */
   t->lockDesired = NULL;
-
-	if (t == initial_thread) {
-		t->mlfqsPriority = PRI_MAX;
-		t->niceness = 0;
-		t->recentCPU = 0;
+	if (thread_mlfqs) {
+		if (t == initial_thread) {
+			t->currPriority = PRI_MAX;
+			t->niceness = 0;
+			t->recentCPU = 0;
+		} else {
+			t->currPriority = thread_current ()->currPriority;
+			t->niceness = thread_current ()->niceness;	
+			t->recentCPU = 0;
+		}	
 	} else {
-		t->mlfqsPriority = thread_current ()->mlfqsPriority;
-		t->niceness = thread_current ()->niceness;	
-		t->recentCPU = 0;
+		//Set priority of the thread
+  	t->currPriority = priority;
+  	t->origPriority = priority;
 	}
+
 
   t->magic = THREAD_MAGIC;
 
@@ -634,9 +640,9 @@ next_thread_to_run (void)
   if (thread_mlfqs) {
 		int i;
 		for (i = NUM_PRIORITIES - 1; i >= 0; i--) {
-			struct list currList = mlfqs_ready_lists[i];
-			if (!list_empty (&currList)) {
-				struct thread *nextThread = list_entry (list_pop_front (&currList), 
+			struct list *currList = &mlfqs_ready_lists[i];
+			if (!list_empty (currList)) {
+				struct thread *nextThread = list_entry (list_pop_front (currList), 
 																								struct thread, mlfqsReadyElem);
 				return nextThread;
 			}
@@ -649,7 +655,6 @@ next_thread_to_run (void)
 																						&thread_readylist_pri_cmp_fn, NULL), 
 																						struct thread, readyElem);
 		list_remove (&nextThread->readyElem);
-//	printf("this is the priority returned %i\n", nextThread->currPriority);
 		return nextThread;
 	}
 }

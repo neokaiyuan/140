@@ -307,7 +307,7 @@ struct semaphore_elem
   {
     struct list_elem elem;              /* List element. */
     struct semaphore semaphore;         /* This semaphore. */
-    int PriThreadWaiting;               /* Prioirty of waiting thread*/
+    int priority;               /* Prioirty of waiting thread*/
   };
 
 /* Initializes condition variable COND.  A condition variable
@@ -353,7 +353,7 @@ cond_wait (struct condition *cond, struct lock *lock)
   
   sema_init (&waiter.semaphore, 0);
   list_push_back (&cond->waiters, &waiter.elem);
-  waiter.PriThreadWaiting = thread_current()->currPriority;  
+  waiter.priority = thread_current()->currPriority;  
   lock_release (lock);
   sema_down (&waiter.semaphore);
   lock_acquire (lock);
@@ -381,14 +381,12 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
       struct semaphore_elem *checking = list_entry (e, struct semaphore_elem, elem); 
       if (highestPriSem == NULL) {
          highestPriSem = checking;
-      } else {
-	 if (checking->PriThreadWaiting > highestPriSem->PriThreadWaiting){
-            highestPriSem = checking; 
-         } 
-      }
+      } else if (checking->priority > highestPriSem->priority) {
+         highestPriSem = checking; 
+      } 
     }
-  list_remove(&highestPriSem->elem);
-  sema_up(&highestPriSem->semaphore);
+  list_remove (&highestPriSem->elem);
+  sema_up (&highestPriSem->semaphore);
   }
 }
 /* Wakes up all threads, if any, waiting on COND (protected by

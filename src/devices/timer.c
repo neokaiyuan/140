@@ -170,6 +170,7 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
+  thread_wake_all_ready (ticks);
   if (thread_mlfqs) {
     if (ticks % TIMER_FREQ == 0) {
       thread_mlfqs_update_load_avg ();
@@ -178,7 +179,6 @@ timer_interrupt (struct intr_frame *args UNUSED)
     if (ticks % 4 == 0) 
 			thread_mlfqs_update_all_priorities ();
   } 
-  thread_wake_all_ready (ticks);
   thread_tick ();
 }
 
