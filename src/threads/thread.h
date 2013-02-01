@@ -98,28 +98,22 @@ struct thread
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
 
-    int origPriority;                   /* Origonal Priority Given. */
-    int currPriority;                   /* Current priority of the thread */
-    /* Used in thread.c for ready_list */
-    struct list_elem readyElem;         /* List element. */
-    /* Used in synch.c for sema->waiters */
-    struct list_elem semaWaitElem;
+		int64_t ticksToWake;
+
+    int origPriority;                   /* Only used in priority donation */
+    int currPriority;                   /* Used in both priority donation and mlfqs */
+
+    struct list_elem readyElem;         /* Used in thread.c for ready_list */
+		struct list_elem mlfqsReadyElem;		/* Used as the elem for mlfqs priority lists */
+		struct list_elem waitElem;					/* Used for wait_list in timer functions */
+    struct list_elem semaWaitElem;			/* Used in synch.c for sema->waiters */
 
 		struct list locksHeld;		
 		struct lock *lockDesired;
 
 		int niceness;												/* Factor used to determine priority */
 		int recentCPU;											/* Recent CPU usage stored as FP*/
-		/* Used for mlfqs priority lists */
-		struct list_elem mlfqsReadyElem;
   };
-
-/* defines the elements stored in wait_list */
-struct sleepingThread {
-	struct list_elem waitElem;
-	int64_t ticksNeeded;
-	struct thread *thread;
-};
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

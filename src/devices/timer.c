@@ -89,10 +89,9 @@ timer_elapsed (int64_t then)
 void
 timer_sleep (int64_t ticks) 
 {
-  //Calculate absolute ticks to woke up on
   int64_t start = timer_ticks ();
-	int releaseTicks = start + ticks;
-  thread_sleep (releaseTicks);
+	int ticksToWake = start + ticks;
+  thread_sleep (ticksToWake);
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -170,7 +169,6 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
-  thread_wake_all_ready (ticks);
   if (thread_mlfqs) {
     if (ticks % TIMER_FREQ == 0) {
       thread_mlfqs_update_load_avg ();
@@ -179,6 +177,7 @@ timer_interrupt (struct intr_frame *args UNUSED)
     if (ticks % 4 == 0) 
 			thread_mlfqs_update_all_priorities ();
   } 
+  thread_wake_all_ready (ticks);
   thread_tick ();
 }
 
