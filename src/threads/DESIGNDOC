@@ -170,7 +170,7 @@ schedule
 >> how your implementation avoids it.  Can you use a lock to avoid
 >> this race?
 
-could have the case where one thread tries to change priority of another 
+One could have the case where one thread tries to change priority of another 
 thread just before that thread calls thread_set_priority() internally.
 This would result in a race condition where the receiving thread may
 revert back to another priority right after a higher priority has been
