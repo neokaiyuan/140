@@ -67,10 +67,7 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 bool thread_mlfqs;
-/* array of ready lists for each possible priority */
-static struct list mlfqs_ready_lists[NUM_PRIORITIES];
-/* Average number of threads run over the past minute, stored as FP */
-int mlfqs_load_avg;
+int mlfqs_load_avg; /* Avg num threads run over the past minute, stored as FP */
 int mlfqs_num_ready_threads;
 static void mlfqs_update_priority (struct thread *currThread);
 static void mlfqs_update_recent_cpu (struct thread *currThread);
@@ -115,9 +112,6 @@ thread_init (void)
 
 	list_init (&wait_list);
 	if (thread_mlfqs) {
-		int i;
-		for (i = 0; i < NUM_PRIORITIES; i++)
-			list_init (&mlfqs_ready_lists[i]);
 		mlfqs_load_avg = 0;
 		mlfqs_num_ready_threads = 0; // we set the initial thread to one
 	}
@@ -272,13 +266,10 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-	if (thread_mlfqs) {
-		int priority = thread_get_priority ();
-		list_push_back (&mlfqs_ready_lists[priority], &t->mlfqsReadyElem);
-    if (t != idle_thread) mlfqs_num_ready_threads++;
-	} else {
-		list_push_back (&ready_list, &t->readyElem);
-	}
+
+	list_push_back (&ready_list, &t->readyElem);
+	if (thread_mlfqs && t != idle_thread) 
+		mlfqs_num_ready_threads++;
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -346,17 +337,11 @@ thread_yield (void)
   enum intr_level old_level;
   
   ASSERT (!intr_context ());
-
   old_level = intr_disable ();
 
-	if (cur != idle_thread) {
-		if (thread_mlfqs) {
-			int priority = thread_get_priority ();
-			list_push_back (&mlfqs_ready_lists[priority], &cur->mlfqsReadyElem);
-		} else {
-  		list_push_back (&ready_list, &cur->readyElem);
-		}
-	} 
+	if (cur != idle_thread)
+  	list_push_back (&ready_list, &cur->readyElem);
+
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -397,14 +382,13 @@ thread_mlfqs_update_all_priorities ()
   struct list_elem *e;
   for (e = list_begin(&all_list); e != list_end(&all_list);
        e = list_next(e)) {
-    struct thread *nonUpdatedThread = list_entry (e, struct thread, allelem);
-    if (nonUpdatedThread->status == THREAD_READY) {
-      list_remove (&nonUpdatedThread->mlfqsReadyElem);
-      mlfqs_update_priority (nonUpdatedThread);
-      list_push_back (&mlfqs_ready_lists[nonUpdatedThread->currPriority],
-                      &nonUpdatedThread->mlfqsReadyElem);
-    } else if (nonUpdatedThread != idle_thread) {
-      mlfqs_update_priority(nonUpdatedThread);
+    struct thread *t = list_entry (e, struct thread, allelem);
+    if (t->status == THREAD_READY && t != idle_thread) {
+      list_remove (&t->readyElem);
+      mlfqs_update_priority (t);
+      list_push_back (&ready_list, &t->readyElem);
+    } else if (t != idle_thread) {
+      mlfqs_update_priority(t);
     }
   } 
 }
@@ -475,15 +459,10 @@ mlfqs_update_recent_cpu (struct thread *currThread)
 void
 thread_mlfqs_update_all_recent_cpu (void)
 {
-	int i;
-	for (i = 0; i < NUM_PRIORITIES; i++) {
-		struct list *currList = &mlfqs_ready_lists[i];
-		struct list_elem *e;
-		for (e = list_begin (currList); e != list_end (currList);
-				 e = list_next (e)) {
-			struct thread *t = list_entry (e, struct thread, mlfqsReadyElem);
-			mlfqs_update_recent_cpu (t);
-		}
+	struct list_elem *e;
+	for (e = list_begin (&all_list); e != list_end (&all_list); e = list_next (e)) {
+		struct thread *t = list_entry (e, struct thread, allelem);
+		mlfqs_update_recent_cpu (t);
 	}
 }
 
@@ -630,26 +609,13 @@ alloc_frame (struct thread *t, size_t size)
 static struct thread *
 next_thread_to_run (void) 
 {
-  if (thread_mlfqs) {
-		int i;
-		for (i = NUM_PRIORITIES - 1; i >= 0; i--) {
-			struct list *currList = &mlfqs_ready_lists[i];
-			if (!list_empty (currList)) {
-				struct thread *nextThread = list_entry (list_pop_front (currList), 
-																								struct thread, mlfqsReadyElem);
-				return nextThread;
-			}
-		}
-		return idle_thread;
-	} else {
-		if (list_empty (&ready_list))
-    	return idle_thread;
-  	struct thread *nextThread = list_entry (list_max (&ready_list, 
-																						&thread_readylist_pri_cmp_fn, NULL), 
-																						struct thread, readyElem);
-		list_remove (&nextThread->readyElem);
-		return nextThread;
-	}
+	if (list_empty (&ready_list))
+   	return idle_thread;
+  struct thread *nextThread = list_entry (list_max (&ready_list, 
+																					&thread_readylist_pri_cmp_fn, NULL), 
+																					struct thread, readyElem);
+	list_remove (&nextThread->readyElem);
+	return nextThread;
 }
 
 /* Completes a thread switch by activating the new thread's page
@@ -737,8 +703,8 @@ allocate_tid (void)
 static bool
 tick_cmp_fn (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
 {
-  struct thread *a_thread = list_entry(a, struct thread, waitElem);
-  struct thread *b_thread = list_entry(b, struct thread, waitElem);
+  struct thread *a_thread = list_entry(a, struct thread, timerWaitElem);
+  struct thread *b_thread = list_entry(b, struct thread, timerWaitElem);
   return a_thread->ticksToWake < b_thread->ticksToWake;
 }
 
@@ -746,12 +712,11 @@ tick_cmp_fn (const struct list_elem *a, const struct list_elem *b, void *aux UNU
 void 
 thread_sleep (int64_t ticksToWake) 
 {
-  
   intr_disable();
   debug++;
 	struct thread *currThread = thread_current ();
   currThread->ticksToWake = ticksToWake;
-  list_insert_ordered (&wait_list, &currThread->waitElem, &tick_cmp_fn, NULL);
+  list_insert_ordered (&wait_list, &currThread->timerWaitElem, &tick_cmp_fn, NULL);
 	//note necessary turn interrupts off, block calls scheudle which turns intr back on
   thread_block();
 }
@@ -762,9 +727,9 @@ thread_wake_all_ready (int64_t currTicks)
   if (list_empty(&wait_list)) return;
 	struct list_elem *e = NULL;
   for (e = list_begin(&wait_list); e != list_end(&wait_list); e = list_next (e)) {
-    struct thread *t = list_entry (e, struct thread, waitElem);
+    struct thread *t = list_entry (e, struct thread, timerWaitElem);
     if (t->ticksToWake <= currTicks) {
-			list_remove (&t->waitElem);
+			list_remove (&t->timerWaitElem);
       thread_unblock (t);
     } else {  // this indicates there are no more threads ready to run
       break;

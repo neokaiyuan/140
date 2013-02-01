@@ -98,14 +98,13 @@ struct thread
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
 
-		int64_t ticksToWake;
+		int64_t ticksToWake;								/* stores the time at which to wake */
 
     int origPriority;                   /* Only used in priority donation */
     int currPriority;                   /* Used in both priority donation and mlfqs */
 
-    struct list_elem readyElem;         /* Used in thread.c for ready_list */
-		struct list_elem mlfqsReadyElem;		/* Used as the elem for mlfqs priority lists */
-		struct list_elem waitElem;					/* Used for wait_list in timer functions */
+    struct list_elem readyElem;         /* Used for normal and mlfqs ready_lists */
+		struct list_elem timerWaitElem;			/* Used for wait_list in timer functions */
     struct list_elem semaWaitElem;			/* Used in synch.c for sema->waiters */
 
 		struct list locksHeld;		
