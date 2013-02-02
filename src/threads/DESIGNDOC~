@@ -146,15 +146,15 @@ another (thread.c).
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
 #1:
-In the semaphore_elem in sync.c:
+In the semaphore_elem in synch.c:
 struct semaphore_elem {
   struct list_elem elem;
   struct semaphore semaphore;
-  int priority;                   ------------------------------ADDED
+  int priority;                   // ADDED
 }
 
 Int priority is an optimization to wake the highest priority thread
-waiting on a cond_var, the value is equal to said thread's priorit
+waiting on a cond_var, the value is equal to said thread's priority
 
 #2
 In the struct thread in thread.c
@@ -164,30 +164,102 @@ struct thread
    .
    int basePriority;
    int currPriority;
-	 struct list_elem readyElem;
-	 struct list_elem semaWaitElem;
+   struct list_elem readyElem;
+   struct list_elem semaWaitElem;
    .
    .
    .
-	 struct list locksHeld;
+   struct list_elem readyElem;
+   struct list_elem semaWaitElem;
+   .
+   .
+   .
+   struct list locksHeld;
    struct lock *lockDesired;
 }
-All shown above were added for priority scheduling
+// All shown above were added for priority scheduling
 
-int basePriority keeps track of a threads priority, excudling,
-priority donation, so it can return to its origonal value after
-a lock has been released.
+int basePriority keeps track of a thread's priority without
+priority donation, useful for allowing a thread to return to 
+its base priority when donation ends (lock_release).
 
-int currPriority, keeps track of a threads curent highest priority
-including donation, used for all scheduling.
+int currPriority, keeps track of a thread's curent highest priority
+including donated priorities, this priority is used by the scheduler.
 
-struct lock *lockDesire keeps track of what lock, if any, a thread
-is waiting on, thus allowing for easier priority donation.
+struct list_elem readyElem, elem used to store threads on the ready 
+list (also used in the advanced scheduler).
+
+struct list_elem semaWaitElem, elem used to store waiting threads
+on a semaphore so that later the thread with highest priority
+can be found and woken up. (only change is renaming elem)
+
+struct list locksHeld, keeps track of all locks a thread currently
+holds, allows a thread to check if its priority should decrease
+after lock_release.
+
+struct lock *lockDesired keeps track of what lock, if any, a thread
+is waiting on, thus allowing to easily transfer priority during 
+priority donation.
 
 
 >> B2: Explain the data structure used to track priority donation.
 >> Use ASCII art to diagram a nested donation.  (Alternately, submit a
 >> .png file.)
+
+We have no single data structure to keep track of priority donation.
+Instead we use the struct thread *holder member of the lock struct
+as well as a struct list locksHeld and struct lock *lockDesired which we 
+added to the thread struct.
+
+A thread can donate its priority (in a nested fashion no less) by 
+accessing the struct thread *holder of the lock it is waiting on.
+It can then (using *thread->currPriority = x) quite easily donate
+its priority. With the same methodology the thread donated to can
+quite easily give its own, now augmented priority, to the thread
+holding the lock it needs. For this to work, we assured that each thread 
+sets its struct thread * holder field to itself when it acquires a lock
+and to NULL when it releases it. Futhermore, each thread  always updates
+its own struct lock *lockDesired when it waits on a lock. Note, that an
+alternative would have been to store the struct thread * contained within
+the lockDesired. However, This strategy is flawed because if the thread
+holding the lock changes, there would be no simple way to update the field
+in the thread.
+
+In the opposite direction, decreasing its priority, a thread must iterate
+through all the locks it holds in order to see if it should decrease its
+own priority (ie., to check if lock it just released had donated priority). Thus 
+each thread must keep a list of locks it holds in its structure. This is the 
+struct list locksHeld. (note that the order of releasing the lock/ upating
+one's priority is important. See B5 for more information on this matter)
+
+
+Passing on priority:
+
+
+	___thread___	---desires -->	[lock]  ----held -----> ____thread2___
+
+
+Decreasing its priority
+
+	___thread1___    --------------------------------- (locksHeld list)
+				'		' 	
+				'		'
+				'		'
+				'		'
+       (struct list waiters)	'		'	   (struct list waiters)
+	(waiting threads)------[lock1]         [lock2]-------(waiting threads)
+		'					 	    '
+		'						    '
+		'						    '
+	   __thread2___						__thread4___
+		'
+		'	
+		'
+	   __thread3___					
+						
+						
+Here thread 1 can check the prority of thread 2, 3, and 4 who are all waiting
+on a lock which thread 1 has.
 
 ---- ALGORITHMS ----
 
@@ -198,7 +270,7 @@ We ensure the highest priority waiting on a semaphore wakes up by
 purposefull waking it up. When sema_up is called we extract max
 from the list of threads waiting on the given sema. The comparison
 function we use returns A > B if A's priority > B's priority. Thus
-the thread with the highest prioirty.
+the thread with the highest priority. 
 
 An important note here, and else where, is that we chose to keep
 an ordered list of waiting threads for a given sema. Alternatively
@@ -253,21 +325,29 @@ a higher prioirty.
 >> causes a priority donation.  How is nested donation handled?
 
 When a call to lock_acquire causes a prioirty donation the program enters
-a while loop. The thread that wanted the lock will, as long as it has 
-a higher priority then thread currently holding the lock, pass its prioirty
-to the thread which currently hs the lock. This thread will then pass its
-priority to the lock it is waiting on. This process continues until we 
-arrive at either a) a thread which has a lock but also has a higher
-prioirty then the thread that wants it, or b) a thread which is not
-waiting on any lock. At this point the program returns to normal
-execution.
+a while loop, which will continuely donate priorties from the thread that
+wants the lock to the thread that has the lock, until a) a thread is reached
+that is not waiting on any lock or b) a thread is reached that wants a lock
+which is held by a thread with higher priority. The mechanics of this are
+explained in B2. To summarize again, each thread keeps track of which lock
+it is waiting on. Each thread thenhas access to the thread holding the lock
+it wants via the lock struct, namely the struct thread *holder contained
+within the lock structure. We have created singly linked list of sorts
+(that alternates thread -> lock -> thread) which connects the intial thread
+that is donating its priority, to all the threads that need to recieve its
+donation, given the current state.
 
 We chose not to put a clamp on the number of nested donations our program
 could handle. As each iteration the work required is simply a few derefences
 we did not consider many of these operations unduly expensive. The alternative
 which would be to clamp this number, would create a situation where our scheudler
-was not working to move forward the goals of the highest prioirty thread. This
+would not be working to move forward the goals of the highest prioirty thread. This
 seemed contrary to priority scheudling.
+
+I also want to iterate how important it was that our donation would stop if a 
+thread tried to donate its priority to a thread, waiting on a lock it needed
+of course, with the same priority. Although harmless in most cases, this could
+cause a live lock in some. 
 
 >> B5: Describe the sequence of events when lock_release() is called
 >> on a lock that a higher-priority thread is waiting for.
@@ -281,15 +361,15 @@ lock, ie., the current thread running. Second, the thread calls thread_yield
 via sema_up, which, barring the entrance of new higher priority threads, will
 cause the higher-prioirty thread to run next.
 
-When a thread releases a lock it owns, there are two parts to the event. First
-the lock indicates to itself that it no longer has the lock. This means taking
-the lock off the list of locks a thread owns. Next, the thread updates its own
-priority. It loops through every lock it owns and records the highest prioirty of
-a thread waiting on one them. Then it sets its own prioirty to the maximum of
-that prioirty or its own base prioirty. Finally, the thread indicates to other
-threads that it has released the lock, by calling sema_up which also calls 
-thread_yield, switching the thread running if a higher priority thread is now
-waiting to run. In this context, in case the current thread's prioirty has dropped.
+Addtionally, when a thread releases a lock it owns, there are three parts.
+First the lock indicates to itself that it no longer has the lock. This
+means taking the lock off the list of locks a thread owns. Next, the thread updates
+its own priority. It loops through every lock it owns and records the highest
+prioirty of a thread waiting on one them. Then it sets its own prioirty to
+the maximum of that prioirty or its own base prioirty. Finally, the thread
+indicates to other threads that it has released the lock, by calling sema_up 
+which also calls thread_yield, switching the thread running if a higher priority 
+thread is now waiting to run. 
 
 
 ---- SYNCHRONIZATION ----
@@ -297,6 +377,11 @@ waiting to run. In this context, in case the current thread's prioirty has dropp
 >> B6: Describe a potential race in thread_set_priority() and explain
 >> how your implementation avoids it.  Can you use a lock to avoid
 >> this race?
+
+
+
+One could have the case where one thread tries to set change priority right
+as an interrupt occurs and the running thread is changed. 
 
 One could have the case where one thread tries to change priority of another 
 thread just before that thread calls thread_set_priority() internally.
@@ -307,16 +392,39 @@ donated, and as a result fail to run.
 To mitigate this we include the code for thread_set_priority and schedule()
 in synch.c and thread.c respectively.
 
-alternatively we could have the case where a thread is switched in the middle
+Alternatively we could have the case where a thread is switched in the middle
 of donating its priority, and when it resumes it donates priority to a thread
 that does not need to run.
 
-to mitigate this we can put priority donation in sema_down.
+To mitigate this we can put priority donation in sema_down.
 
 ---- RATIONALE ----
 
 >> B7: Why did you choose this design?  In what ways is it superior to
 >> another design you considered?
+
+We chose to modularize our priority donation code into primarily two functions:
+lock_acquire and lock_release. This allowed fewer chances of errors because
+we could clearly see how the priority donations and inherent nested donations
+would work. This is superior (and simpler) to having such donations in the 
+lower-level, sema_up and sema_down functions that are called by lock_acquire
+and lock_release, because we have access to the lock structs that give us
+valuable information about which threads need to up their priorities and how
+to recalculate priorities after a lock has been released.
+
+We decided to include a priority element in the semaphore struct in order to
+enable us to access the priorities of the threads waiting on each lock. This
+together with the locksHeld variable in each thread struct allowed us to
+determine which priority to return to after a thread with donated priority
+released a lock. This might be more safe than storing a list of priorities
+directly, because a list of priorities may get out synch due to the nature
+of priority donation, while querying the thread structs and semaphores for
+their priorities directly will typically give us more accurate results. 
+
+The lockDesired element in the thread struct allowed us to tell when the
+priority donation to end. It was essentially an indicator variable for our
+priority donation logic, and also allowed us to traverse the thread-lock-thread
+chains. 
 
 			  ADVANCED SCHEDULER
 			  ==================
@@ -417,27 +525,69 @@ access the math functions involved without any extra code.
 Disadvantages: By declaring these functions in a separate file
 we would need to #include it.
 
-We reused a lot of code, using the same ready_list
+We also decided to use an unordered list as opposed to an ordered list both
+for threads that are waiting for a lock or sema as well as those that are
+waiting to be scheduled. Alternatively we could have kept an ordered list 
+and simply popped off the front whenever we needed the next highest thread
+waiting. This seems to be faster. However, in a case where threads'
+prioirties can be updated even while they are not on the list (true more for
+the advanced scheduler) then there will be a need to sort before list_pop_front. 
+Given that case, and the extra time to insert_ordered as opposed to list_push_back, 
+we chose to go with an unsorted list which we believe may lead to less bugs, 
+may be faster and easier to work with (simplicity is key).
 
-We wrote helper functions for setting all priorities
+We reused ready_list for all schedulers
+Advantages: this allowed our code to be simpler
+Disadvantages: it could potentially have been confusing to debug alarm clock
+apart from mlfqs scheduler
 
-We wrote helper functions for setting all recent cpus
+We wrote helper functions for setting all priorities and all recent cpus
+Advantages: This allowed us to hide complexity in our core functions by decomposing
+the functions into logical components.
+Disadvantages: This made our code longer.
 
-We made load avg a global variable so that it could be accessed from any function
+We made load_avg a global variable so that it could be accessed from any function.
+Advantages: This prevented the need to pass the load_avg variable around, and our
+functions may not have been possible without using this as a global.
 
 We decided to keep variables such as niceness, recentcpu and the current priority 
 inside thread struct.
-Advantages:
+Advantages: This prevented us from creating a separate struct to store these values,
+allowed for a lot of code reuse between alarm clock and mlfqs scheduler, and
+shortened and simplified our code base by a lot.
 
-reuse of the currPriority
+We reused currPriority and readyElem in all schedulers
 Advantages: Reusing currPriority led to cleaner code and less data structures used.
-Because there is a check for mlfqs, there are no conflicts between using currPriority for
+Because the different types of interactions with priorities were exclusive to donation
+scheduler or exclusive to mlfqs, there are no conflicts between using currPriority for
 part 2 and part 3. 
-Disadvantages: 
-
-reuse of the readyElem
+Disadvantages: This may be confusing when reading code and deciphering what variables
+are changed in different types of schedulers. 
 
 Improving on our current design: 
+
+For part 2 (priority scheduler):
+One disadvantadge to our design is that every time a thread releases a lock, as
+long as the priority scheduler is on, it loops through all the locks it holds
+to check if any threads waiting on one of these locks has a higher priority 
+donation value. If so, the original thread should revert to one of these priorities,
+and if not, its original priority (Of course, if the lock just released was not
+one donating priority, the current thread's value would likely stay the same.)
+
+This is somewhat time consuming. In retrospect it would have been better to have
+each thread store an array or perhaps a series of pointers to threads waiting
+which somehow would save the priority the current thread should revert to next
+if it were to release its current lock. Or have each lock store
+the highest-priority non-running thread waiting on it. Thus, during priority
+recalculation, one would merely have to look at each lock once, instead of looping
+through each of the threads waiting on it.
+
+If we had more time to work on this project, we would really enjoy optimizing
+the code further. Ideally, we would have liked to move some of the current timer
+interrupt work,  updating recent CPU, thread priorities, waking sleeping threads,
+etc. elsewhere. This is possible but would require some cool tricks. In fact, when
+we were thinking about this, a TA mentioned this was possible thus inspiring this
+future direction.
 
 >> C6: The assignment explains arithmetic for fixed-point math in
 >> detail, but it leaves it open to you to implement it.  Why did you
@@ -450,12 +600,12 @@ Clarity. We believe that adding a layer of abstraction makes our code
 easier to read and easier to understand. It also decreases the size of
 our code. A few of the operations on fixed points such as mulitplication
 between two fixed-point numbers as well as the conversion from an integer to
-a fixed point, are repated several times. The choice to create an API
+a fixed point, are repeated several times. The choice to create an API
 for fixed points meant that we only would need to write these functions
 one time and then apply them wherever necessary. Advantages 
 of writing these functions only once are:  a) less chance of errors
 b) increased flexibility of code. To change any fixed point operations
-we need only change the .c file of the abstraction layer and volia,
+we need only change the .c file of the abstraction layer and voila,
 the functions are changed every time they are used.
 
 
