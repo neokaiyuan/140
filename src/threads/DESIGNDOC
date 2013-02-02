@@ -38,57 +38,65 @@ Kai-Yuan Neo: AC - 1/3;
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
-#1: struct sleepingThread
-/* defines the elements stored in wait_list */
-struct sleepingThread {
-  struct list_elem elem;
-  int64_t ticksNeeded;
-  struct thread *thread;
-};
+#1: struct thread
+struct thread
+  {
+		.
+		.
+		.
+    int64_t ticksToWake;                /* stores the time at which to wake */
+    struct list_elem readyElem;         /* Used for normal and mlfqs ready_lists */
+    struct list_elem timerWaitElem;     /* Used for wait_list in timer functions */
+		.
+		.
+		.
+  };
 
-Purpose: The sleepingThread struct contains information necessary for the
+Purpose: The modified thread struct contains information necessary for the
 waking of a thread after timer_sleep has been called. It contains the 
-absolute tick number after which it should be woken.
+absolute tick number after which it should be woken, and the list_elem to
+store this thread in the wait_list. We also changed name of the list_elem
+readyElem from elem in order to make clearer its purpose.
 
 #2: list wait_list
 /* list that keeps track of waiting threads */
 static struct list wait_list
 
-Purpose: This is the list that contains sleepingThread structs in sorted
-order that we look at every time a system tick goes by to check if any
+Purpose: This is the list that contains thread structs in sorted
+order that we look at every system tick to check if any
 threads need to be woken.
-
 
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe what happens in a call to timer_sleep(),
 >> including the effects of the timer interrupt handler.
 
-After timer_sleep is called, we calculate the time at which this thread would
-want to be woken up by adding the ticks argument to the current absolute ticks,
-and then calling our helper function sleepThread, implemented in thread.c.
-sleepThread initializes a sleepingThread struct and populates it with a pointer
-to the current thread and stores the release time (in ticks). It then inserts t
-hat struct into our wait_list, maintaining the sorted order of the list, before
-disabling interrupts and blocking the thread. 
+After timer_sleep is called, we first disable interrupts to ensure that the
+interrupt handler does not mess us up. We then calculate the time at which 
+this thread would want to be woken up by adding the ticks argument to the 
+current absolute ticks, and then calling our helper function thread_sleep, 
+implemented in thread.c. thread_sleep initializes a thread struct and populates 
+it with a pointer to the current thread and stores the release time (in ticks). 
+It then inserts that struct into our wait_list, maintaining the sorted order 
+of the list, before blocking the thread. Interrupts are enabled right after
+blocking the thread.
 
 When the timer interrupt handler is called, the absolute ticks count is
-incremented, and then our helper function wakeReadyThreads is called (defined
-in thread.c). wakeReadyThreads takes in the argument of the number of ticks,
+incremented, and then our helper function thread_wake_all_ready is called (defined
+in thread.c). thread_wake_all_ready takes in the argument of the number of ticks,
 and iterates through the wait list, waking up every thread it encounters until
 it reaches a thread that does not need to be woken up (does not wake this one).
-Each thread that is woken up is removed from the wait list and subsequently
+Each thread that is woken up is removed from the wait_list and subsequently
 unblocked.
 
-Back in the timer interrupt function, after wakeReadyThreads returns,
+Back in the timer interrupt function, after thread_wake_all_ready returns,
 thread_tick is called. 
 
 >> A3: What steps are taken to minimize the amount of time spent in
 >> the timer interrupt handler?
 
-We maintain a sorted linked list to ensure that our function wakeReadyThreads
-only checks at most as many sleepingThread structs as it needs to wake up plus
-one.
+We maintain wait_list as a sorted linked list to ensure that 
+thread_wake_all_ready only checks the number of threads it needs to wake plus one.
 
 ---- SYNCHRONIZATION ----
 
@@ -96,17 +104,16 @@ one.
 >> timer_sleep() simultaneously?
 
 There is no shared memory access in timer_sleep, however the wait_list 
-variable is shared in sleepThread, which is called by timer_sleep. Thus we 
-disable interrupts at the beginning of the sleepThread function in order to 
-prevent messing up the wait list. Interrupts are enabled again in the function
-schedule called in thread_block.
+variable is shared in thread_sleep, which is called by timer_sleep. Thus we 
+disable interrupts at the beginning of the thread_sleep function and wake it up
+at the end in order to prevent messing up the wait_list.
 
 >> A5: How are race conditions avoided when a timer interrupt occurs
 >> during a call to timer_sleep()?
 
-Again, there is no shared memory accessed in timer_sleep, only in sleepThread
-which is called from timer_sleep. In sleepThread we have disabled interrupts
-in the first line, which prevents any race conditions with regard to the
+Again, there is no shared memory accessed in timer_sleep, only in thread_sleep
+which is called from timer_sleep. In thread_sleep we have disabled interrupts
+in the beginning, which prevents any race conditions with regard to the
 shared memory wait_list.
 
 ---- RATIONALE ----
@@ -120,14 +127,14 @@ code that deals with incrementing and passing tick counts are written in
 timer.c.
 
 Another design we considered was to write all our functions in timer.c as well
-as to declare our sleepingThread struct and wait_list there (statically). Thus
+as to declare our modified thread struct and wait_list there (statically). Thus
 while the intratracies of blocking/unblocking threads would be dealt with in
 module thread.c, access to which threads where blocked (via sleep) would 
-be accessible in timer.c, via the wait_list (and sleepingThread structs there
+be accessible in timer.c, via the wait_list (and thread structs there
 contained). One could imagine a situation where a thread must be unblocked yet
 no access is available to it, due to this violation of modularity. It does not 
-make sense to store threads in one file and access them in another.
-
+make sense to store threads in one file (timer.c) and access them directly in 
+another (thread.c).
 
 			 PRIORITY SCHEDULING
 			 ===================
@@ -157,12 +164,21 @@ struct thread
    .
    int basePriority;
    int currPriority;
+<<<<<<< HEAD
    struct list_elem readyElem;
    struct list_elem semaWaitElem;
    .
    .
    .
    struct list locksheld;
+=======
+	 struct list_elem readyElem;
+	 struct list_elem semaWaitElem;
+   .
+   .
+   .
+	 struct list locksHeld;
+>>>>>>> b873042d28f058e415cac952f2f33c160855d70e
    struct lock *lockDesired;
 }
 All shown above were added for priority scheduling
@@ -222,16 +238,25 @@ Passing on priority:
 
 Decreasing its priority
 
-	___thread___    ---------------------------------
-	
-
-
-
-
-
-
-
-
+	___thread1___    --------------------------------- (locksHeld list)
+				'		' 	
+				'		'
+				'		'
+				'		'
+       (struct list waiters)	'		'	   (struct list waiters)
+	(waiting threads)------[lock1]         [lock2]-------(waiting threads)
+		'					 	    '
+		'						    '
+		'						    '
+	   __thread2___						__thread4___
+		'
+		'	
+		'
+	   __thread3___					
+						
+						
+Here thread 1 can check the prority of thread 2, 3, and 4 who are all waiting
+on a lock which thread 1 has.
 
 ---- ALGORITHMS ----
 
