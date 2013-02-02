@@ -38,57 +38,65 @@ Kai-Yuan Neo: AC - 1/3;
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
-#1: struct sleepingThread
-/* defines the elements stored in wait_list */
-struct sleepingThread {
-  struct list_elem elem;
-  int64_t ticksNeeded;
-  struct thread *thread;
-};
+#1: struct thread
+struct thread
+  {
+		.
+		.
+		.
+    int64_t ticksToWake;                /* stores the time at which to wake */
+    struct list_elem readyElem;         /* Used for normal and mlfqs ready_lists */
+    struct list_elem timerWaitElem;     /* Used for wait_list in timer functions */
+		.
+		.
+		.
+  };
 
-Purpose: The sleepingThread struct contains information necessary for the
+Purpose: The modified thread struct contains information necessary for the
 waking of a thread after timer_sleep has been called. It contains the 
-absolute tick number after which it should be woken.
+absolute tick number after which it should be woken, and the list_elem to
+store this thread in the wait_list. We also changed name of the list_elem
+readyElem from elem in order to make clearer its purpose.
 
 #2: list wait_list
 /* list that keeps track of waiting threads */
 static struct list wait_list
 
-Purpose: This is the list that contains sleepingThread structs in sorted
-order that we look at every time a system tick goes by to check if any
+Purpose: This is the list that contains thread structs in sorted
+order that we look at every system tick to check if any
 threads need to be woken.
-
 
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe what happens in a call to timer_sleep(),
 >> including the effects of the timer interrupt handler.
 
-After timer_sleep is called, we calculate the time at which this thread would
-want to be woken up by adding the ticks argument to the current absolute ticks,
-and then calling our helper function sleepThread, implemented in thread.c.
-sleepThread initializes a sleepingThread struct and populates it with a pointer
-to the current thread and stores the release time (in ticks). It then inserts t
-hat struct into our wait_list, maintaining the sorted order of the list, before
-disabling interrupts and blocking the thread. 
+After timer_sleep is called, we first disable interrupts to ensure that the
+interrupt handler does not mess us up. We then calculate the time at which 
+this thread would want to be woken up by adding the ticks argument to the 
+current absolute ticks, and then calling our helper function thread_sleep, 
+implemented in thread.c. thread_sleep initializes a thread struct and populates 
+it with a pointer to the current thread and stores the release time (in ticks). 
+It then inserts that struct into our wait_list, maintaining the sorted order 
+of the list, before blocking the thread. Interrupts are enabled right after
+blocking the thread.
 
 When the timer interrupt handler is called, the absolute ticks count is
-incremented, and then our helper function wakeReadyThreads is called (defined
-in thread.c). wakeReadyThreads takes in the argument of the number of ticks,
+incremented, and then our helper function thread_wake_all_ready is called (defined
+in thread.c). thread_wake_all_ready takes in the argument of the number of ticks,
 and iterates through the wait list, waking up every thread it encounters until
 it reaches a thread that does not need to be woken up (does not wake this one).
-Each thread that is woken up is removed from the wait list and subsequently
+Each thread that is woken up is removed from the wait_list and subsequently
 unblocked.
 
-Back in the timer interrupt function, after wakeReadyThreads returns,
+Back in the timer interrupt function, after thread_wake_all_ready returns,
 thread_tick is called. 
 
 >> A3: What steps are taken to minimize the amount of time spent in
 >> the timer interrupt handler?
 
-We maintain a sorted linked list to ensure that our function wakeReadyThreads
-only checks at most as many sleepingThread structs as it needs to wake up plus
-one.
+We maintain wait_list as a sorted linked list to ensure that 
+thread_wake_all_ready only checks the number of threads it needs to wake plus one.
 
 ---- SYNCHRONIZATION ----
 
@@ -96,17 +104,16 @@ one.
 >> timer_sleep() simultaneously?
 
 There is no shared memory access in timer_sleep, however the wait_list 
-variable is shared in sleepThread, which is called by timer_sleep. Thus we 
-disable interrupts at the beginning of the sleepThread function in order to 
-prevent messing up the wait list. Interrupts are enabled again in the function
-schedule called in thread_block.
+variable is shared in thread_sleep, which is called by timer_sleep. Thus we 
+disable interrupts at the beginning of the thread_sleep function and wake it up
+at the end in order to prevent messing up the wait_list.
 
 >> A5: How are race conditions avoided when a timer interrupt occurs
 >> during a call to timer_sleep()?
 
-Again, there is no shared memory accessed in timer_sleep, only in sleepThread
-which is called from timer_sleep. In sleepThread we have disabled interrupts
-in the first line, which prevents any race conditions with regard to the
+Again, there is no shared memory accessed in timer_sleep, only in thread_sleep
+which is called from timer_sleep. In thread_sleep we have disabled interrupts
+in the beginning, which prevents any race conditions with regard to the
 shared memory wait_list.
 
 ---- RATIONALE ----
@@ -120,14 +127,14 @@ code that deals with incrementing and passing tick counts are written in
 timer.c.
 
 Another design we considered was to write all our functions in timer.c as well
-as to declare our sleepingThread struct and wait_list there (statically). Thus
+as to declare our modified thread struct and wait_list there (statically). Thus
 while the intratracies of blocking/unblocking threads would be dealt with in
 module thread.c, access to which threads where blocked (via sleep) would 
-be accessible in timer.c, via the wait_list (and sleepingThread structs there
+be accessible in timer.c, via the wait_list (and thread structs there
 contained). One could imagine a situation where a thread must be unblocked yet
 no access is available to it, due to this violation of modularity. It does not 
-make sense to store threads in one file and access them in another.
-
+make sense to store threads in one file (timer.c) and access them directly in 
+another (thread.c).
 
 			 PRIORITY SCHEDULING
 			 ===================
@@ -157,12 +164,15 @@ struct thread
    .
    int basePriority;
    int currPriority;
+	 struct list_elem readyElem;
+	 struct list_elem semaWaitElem;
    .
    .
    .
+	 struct list locksHeld;
    struct lock *lockDesired;
 }
-All shown above were ADDED
+All shown above were added for priority scheduling
 
 int basePriority keeps track of a threads priority, excudling,
 priority donation, so it can return to its origonal value after
@@ -325,6 +335,12 @@ Keeps track of the nice value for each thread
 int recentCPU
 Keeps track of amount of CPU time each thread received recently
 
+Added to globals in thread.c
+
+int mlfqs_load_avg; 
+Average number of threads run over the past minute, stored as Fixed Point
+Accessed in functions in thread.c to determine the load average and priority.
+
 
 ---- ALGORITHMS ----
 
@@ -353,11 +369,31 @@ ticks   A   B   C   A   B   C   to run
 
 Yes, when two threads had the same priority. We resolved this conflict by
 choosing the thread that was least recently run, which matches the round robin
-behavior of our scheduler. 
+behavior of our scheduler.
+
+It was also unclear what initial priorities should be at time 0, because
+threads usually inherit the priority from their parent thread, but the
+threads above had no parent threads. We assumed that the priority of
+the threads above followed the priority specified in the equation for
+recalculation of priority in the handout. This matches the behavior
+in our scheduler when we do not know what initial priority is, with
+the exception of the initial thread.
 
 >> C4: How is the way you divided the cost of scheduling between code
 >> inside and outside interrupt context likely to affect performance?
 
+We only included what was absolutely necessary to include in the function
+timer_interrupt(). This included the calculations and updates for recent 
+CPU, load average, and priority. This also includes the function to 
+wake all threads that were slept by timer_sleep. All other scheduling
+functions such as thread_yield, thread_block, and the like were not
+completed in the interrupt context.
+
+We chose such a design to emphasize the speed of timer_interrupt.
+Were timer_interrupt too slow, it could cause the interrupt handler to
+return after most of a tick had gone by, thereby changing the outcome
+of the scheduler. To have optimum performance from each thread, we
+tried to minimize time spent in the interrupt handler.
 
 ---- RATIONALE ----
 
@@ -366,9 +402,42 @@ behavior of our scheduler.
 >> time to work on this part of the project, how might you choose to
 >> refine or improve your design?
 
-Advantages: We used one list instead of any array of 64 lists.
+We used one ready list instead of any array of 64 ready lists for
+advanced scheduler.
+Advantages: This cleaned up our code as we did not have to loop
+through 64 lists to see if any elements resided in them.
+Disadvantages: This possibly slowed down our code because we would
+have to call list_max every time we wished to extract an element from
+the list, necessarily going through all threads in the list.
 
+We decided to create a separate fixed-point.c and h file to 
+modularize the math functions used with regard to fixed points.
+Advantages: modularity. Now any code can #include fixed-point.h and
+access the math functions involved without any extra code.
+Disadvantages: By declaring these functions in a separate file
+we would need to #include it.
+
+We reused a lot of code, using the same ready_list
+
+We wrote helper functions for setting all priorities
+
+We wrote helper functions for setting all recent cpus
+
+We made load avg a global variable so that it could be accessed from any function
+
+We decided to keep variables such as niceness, recentcpu and the current priority 
+inside thread struct.
+Advantages:
+
+reuse of the currPriority
+Advantages: Reusing currPriority led to cleaner code and less data structures used.
+Because there is a check for mlfqs, there are no conflicts between using currPriority for
+part 2 and part 3. 
 Disadvantages: 
+
+reuse of the readyElem
+
+Improving on our current design: 
 
 >> C6: The assignment explains arithmetic for fixed-point math in
 >> detail, but it leaves it open to you to implement it.  Why did you
