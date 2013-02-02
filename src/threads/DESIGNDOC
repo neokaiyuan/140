@@ -157,27 +157,81 @@ struct thread
    .
    int basePriority;
    int currPriority;
+   struct list_elem readyElem;
+   struct list_elem semaWaitElem;
    .
    .
    .
+   struct list locksheld;
    struct lock *lockDesired;
 }
-All shown above were ADDED
+All shown above were added for priority scheduling
 
-int basePriority keeps track of a threads priority, excudling,
-priority donation, so it can return to its origonal value after
-a lock has been released.
+int basePriority keeps track of a thread's priority without
+priority donation, useful for allowing a thread to return to 
+its base priority when donation ends (lock_release).
 
-int currPriority, keeps track of a threads curent highest priority
-including donation, used for all scheduling.
+int currPriority, keeps track of a thread's curent highest priority
+including donated priorities, this priority is used by the scheduler.
 
-struct lock *lockDesire keeps track of what lock, if any, a thread
+struct list_elem readyElem, elem used to store threads on the ready 
+list (also used in the advanced scheduler).
+
+struct list_elem semaWaitElem, elem used to store waiting threads
+on a semaphore so that later the thread with highest priority
+can be found and woken up.
+
+struct list locksheld, keeps track of all locks a thread currently
+holds, allows a thread to check if its priority should decrease
+after lock_release.
+
+struct lock *lockDesired keeps track of what lock, if any, a thread
 is waiting on, thus allowing for easier priority donation.
 
 
 >> B2: Explain the data structure used to track priority donation.
 >> Use ASCII art to diagram a nested donation.  (Alternately, submit a
 >> .png file.)
+
+There is no large data structure that keeps track of priority donation.
+Instead we utilize the struct thread *holder member of the lock struct
+as well as a struct list locksHeld and struct lock *lockDesired that we 
+added to the thread struct.
+
+A thread can donate its priority (in a nested fashion no less) by 
+accessing the struct thread *holder and changing the priority of
+that thread to its own. Using the same methodology this thread, call
+it B, can the pass its priority to the thread holding the lock it needs.
+For this strategy to work, each thread must both set the 
+struct thread * holder to itself when it acquires the lock and set it
+to NULL when it releases it. Futhermore, it must always update its own
+struct lock *lockDesired when it waits on a lock.
+
+In the opposite direction, decreasing its priority, a thread must iterate
+through all the locks it holds, after it releases the lock, in order to
+to see if it should decrease its own priority (ie., if a thread on that
+lock had donated its priority). Thus each thread must keep a list of locks
+in its structure. This is the struct list locksHeld.
+
+
+Passing on priority:
+
+
+	___thread___	---desires -->	[lock]  ----held -----> ____thread2___
+
+
+Decreasing its priority
+
+	___thread___    ---------------------------------
+	
+
+
+
+
+
+
+
+
 
 ---- ALGORITHMS ----
 
