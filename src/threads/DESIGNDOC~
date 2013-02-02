@@ -38,57 +38,65 @@ Kai-Yuan Neo: AC - 1/3;
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
-#1: struct sleepingThread
-/* defines the elements stored in wait_list */
-struct sleepingThread {
-  struct list_elem elem;
-  int64_t ticksNeeded;
-  struct thread *thread;
-};
+#1: struct thread
+struct thread
+  {
+		.
+		.
+		.
+    int64_t ticksToWake;                /* stores the time at which to wake */
+    struct list_elem readyElem;         /* Used for normal and mlfqs ready_lists */
+    struct list_elem timerWaitElem;     /* Used for wait_list in timer functions */
+		.
+		.
+		.
+  };
 
-Purpose: The sleepingThread struct contains information necessary for the
+Purpose: The modified thread struct contains information necessary for the
 waking of a thread after timer_sleep has been called. It contains the 
-absolute tick number after which it should be woken.
+absolute tick number after which it should be woken, and the list_elem to
+store this thread in the wait_list. We also changed name of the list_elem
+readyElem from elem in order to make clearer its purpose.
 
 #2: list wait_list
 /* list that keeps track of waiting threads */
 static struct list wait_list
 
-Purpose: This is the list that contains sleepingThread structs in sorted
-order that we look at every time a system tick goes by to check if any
+Purpose: This is the list that contains thread structs in sorted
+order that we look at every system tick to check if any
 threads need to be woken.
-
 
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe what happens in a call to timer_sleep(),
 >> including the effects of the timer interrupt handler.
 
-After timer_sleep is called, we calculate the time at which this thread would
-want to be woken up by adding the ticks argument to the current absolute ticks,
-and then calling our helper function sleepThread, implemented in thread.c.
-sleepThread initializes a sleepingThread struct and populates it with a pointer
-to the current thread and stores the release time (in ticks). It then inserts t
-hat struct into our wait_list, maintaining the sorted order of the list, before
-disabling interrupts and blocking the thread. 
+After timer_sleep is called, we first disable interrupts to ensure that the
+interrupt handler does not mess us up. We then calculate the time at which 
+this thread would want to be woken up by adding the ticks argument to the 
+current absolute ticks, and then calling our helper function thread_sleep, 
+implemented in thread.c. thread_sleep initializes a thread struct and populates 
+it with a pointer to the current thread and stores the release time (in ticks). 
+It then inserts that struct into our wait_list, maintaining the sorted order 
+of the list, before blocking the thread. Interrupts are enabled right after
+blocking the thread.
 
 When the timer interrupt handler is called, the absolute ticks count is
-incremented, and then our helper function wakeReadyThreads is called (defined
-in thread.c). wakeReadyThreads takes in the argument of the number of ticks,
+incremented, and then our helper function thread_wake_all_ready is called (defined
+in thread.c). thread_wake_all_ready takes in the argument of the number of ticks,
 and iterates through the wait list, waking up every thread it encounters until
 it reaches a thread that does not need to be woken up (does not wake this one).
-Each thread that is woken up is removed from the wait list and subsequently
+Each thread that is woken up is removed from the wait_list and subsequently
 unblocked.
 
-Back in the timer interrupt function, after wakeReadyThreads returns,
+Back in the timer interrupt function, after thread_wake_all_ready returns,
 thread_tick is called. 
 
 >> A3: What steps are taken to minimize the amount of time spent in
 >> the timer interrupt handler?
 
-We maintain a sorted linked list to ensure that our function wakeReadyThreads
-only checks at most as many sleepingThread structs as it needs to wake up plus
-one.
+We maintain wait_list as a sorted linked list to ensure that 
+thread_wake_all_ready only checks the number of threads it needs to wake plus one.
 
 ---- SYNCHRONIZATION ----
 
@@ -96,17 +104,16 @@ one.
 >> timer_sleep() simultaneously?
 
 There is no shared memory access in timer_sleep, however the wait_list 
-variable is shared in sleepThread, which is called by timer_sleep. Thus we 
-disable interrupts at the beginning of the sleepThread function in order to 
-prevent messing up the wait list. Interrupts are enabled again in the function
-schedule called in thread_block.
+variable is shared in thread_sleep, which is called by timer_sleep. Thus we 
+disable interrupts at the beginning of the thread_sleep function and wake it up
+at the end in order to prevent messing up the wait_list.
 
 >> A5: How are race conditions avoided when a timer interrupt occurs
 >> during a call to timer_sleep()?
 
-Again, there is no shared memory accessed in timer_sleep, only in sleepThread
-which is called from timer_sleep. In sleepThread we have disabled interrupts
-in the first line, which prevents any race conditions with regard to the
+Again, there is no shared memory accessed in timer_sleep, only in thread_sleep
+which is called from timer_sleep. In thread_sleep we have disabled interrupts
+in the beginning, which prevents any race conditions with regard to the
 shared memory wait_list.
 
 ---- RATIONALE ----
@@ -120,14 +127,14 @@ code that deals with incrementing and passing tick counts are written in
 timer.c.
 
 Another design we considered was to write all our functions in timer.c as well
-as to declare our sleepingThread struct and wait_list there (statically). Thus
+as to declare our modified thread struct and wait_list there (statically). Thus
 while the intratracies of blocking/unblocking threads would be dealt with in
 module thread.c, access to which threads where blocked (via sleep) would 
-be accessible in timer.c, via the wait_list (and sleepingThread structs there
+be accessible in timer.c, via the wait_list (and thread structs there
 contained). One could imagine a situation where a thread must be unblocked yet
 no access is available to it, due to this violation of modularity. It does not 
-make sense to store threads in one file and access them in another.
-
+make sense to store threads in one file (timer.c) and access them directly in 
+another (thread.c).
 
 			 PRIORITY SCHEDULING
 			 ===================
@@ -138,6 +145,46 @@ make sense to store threads in one file and access them in another.
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+#1:
+In the semaphore_elem in sync.c:
+struct semaphore_elem {
+  struct list_elem elem;
+  struct semaphore semaphore;
+  int priority;                   ------------------------------ADDED
+}
+
+Int priority is an optimization to wake the highest priority thread
+waiting on a cond_var, the value is equal to said thread's priorit
+
+#2
+In the struct thread in thread.c
+struct thread
+{  .
+   .
+   .
+   int basePriority;
+   int currPriority;
+	 struct list_elem readyElem;
+	 struct list_elem semaWaitElem;
+   .
+   .
+   .
+	 struct list locksHeld;
+   struct lock *lockDesired;
+}
+All shown above were added for priority scheduling
+
+int basePriority keeps track of a threads priority, excudling,
+priority donation, so it can return to its origonal value after
+a lock has been released.
+
+int currPriority, keeps track of a threads curent highest priority
+including donation, used for all scheduling.
+
+struct lock *lockDesire keeps track of what lock, if any, a thread
+is waiting on, thus allowing for easier priority donation.
+
+
 >> B2: Explain the data structure used to track priority donation.
 >> Use ASCII art to diagram a nested donation.  (Alternately, submit a
 >> .png file.)
@@ -147,22 +194,103 @@ make sense to store threads in one file and access them in another.
 >> B3: How do you ensure that the highest priority thread waiting for
 >> a lock, semaphore, or condition variable wakes up first?
 
-scheduler holds a sorted list
+We ensure the highest priority waiting on a semaphore wakes up by
+purposefull waking it up. When sema_up is called we extract max
+from the list of threads waiting on the given sema. The comparison
+function we use returns A > B if A's priority > B's priority. Thus
+the thread with the highest prioirty.
+
+An important note here, and else where, is that we chose to keep
+an ordered list of waiting threads for a given sema. Alternatively
+we could have kept and ordered list and simply called list_pop_front
+each sema_up. This seems to be faster. However, in a case where thread's
+prioirties can be updated even while they are waiting (true more for
+the advanced scheduler which also uses sema's of course) then there
+will be a need to sort before list_pop_front. Given that, and the
+extra time to insert_ordered as opposed to list_push_back. We chose
+to go with an unsorted list.
+
+Next, we ensure the highest priority thread waiting on a lock
+wakes up first by having them utilize sema's. Ie., the origonal design
+we were given used a semaphore to sleep threads under the hood. Since
+the burden of sleeping threads and waking them up is actually left to
+semaphores, and because our semaphores ensure the highest prioirty
+thread wakes up first, locks ensure that the highest priority thread
+waiting on them, wakes up first.
+
+Finally, to discuss why the highest priority thread waiting on a condition 
+variable wakes up first it is necessary to examine both cond_signal
+and cond_broadcast separtely. It is important to note that we added
+a priority field to the semaphore_elem struct. Whenever a thread enters
+a cond_wait and then waits on a semaphore which is stored on the conditon
+variables wait list, this semaphore_elem is given the priority of the thread.
+
+When cond_signal is called, we iterate through the list of semaphores each
+cond_variable contains. We then sema_up, ie., wake up the thread waiting,
+the semaphore with the highest priority. Since this was donated by the
+thread before it slept. This means that we are waking the thread with
+the highest prioirty. 
+
+Cond_broadcast, on the other hand, does not wake up a single thread.
+Instead it wakes all threads. In this case the order of ready
+threads will determine which thread 'wakes up'. Whichever thread
+runs next will acquire the lock necessary to continue execution.
+All other threads will be forced to wait on this lock, ie., 'to
+sleep again until this lock is released'. 
+
+Thus Cond_broadcast's thread waking order is dependent on the 
+scheduler. In our case, the schduler wakes in order from highest
+to lowest prioirty. Thus the thread with the highest prioirty
+waiting on the condition variable will run next, thus acquiring 
+the lock and thus be the only thread to run. In fact, since it is
+the highest prioirty thread, it will, barring any decrease in its
+prioirty, never relinquish control to the other waiting threads even
+if releases the lock. That is, until it blocks or somehow other
+becomes not ready. Or, if any of the other threads are somehow given
+a higher prioirty.
 
 >> B4: Describe the sequence of events when a call to lock_acquire()
 >> causes a priority donation.  How is nested donation handled?
 
-lock_acquire()
-check what priority that lock's holder currently has
-update if necessary
-after the update, we need to do the same thing for the lock just updated
-to cater for nested donation
+When a call to lock_acquire causes a prioirty donation the program enters
+a while loop. The thread that wanted the lock will, as long as it has 
+a higher priority then thread currently holding the lock, pass its prioirty
+to the thread which currently hs the lock. This thread will then pass its
+priority to the lock it is waiting on. This process continues until we 
+arrive at either a) a thread which has a lock but also has a higher
+prioirty then the thread that wants it, or b) a thread which is not
+waiting on any lock. At this point the program returns to normal
+execution.
+
+We chose not to put a clamp on the number of nested donations our program
+could handle. As each iteration the work required is simply a few derefences
+we did not consider many of these operations unduly expensive. The alternative
+which would be to clamp this number, would create a situation where our scheudler
+was not working to move forward the goals of the highest prioirty thread. This
+seemed contrary to priority scheudling.
 
 >> B5: Describe the sequence of events when lock_release() is called
 >> on a lock that a higher-priority thread is waiting for.
 
-priority_set(next priority)
-schedule
+When lock_release() is called and the lock has a higher-prioirty thread waiting
+for it two actions occur in quick succesion. First, the current running thread's
+prioirty will drop to its origonal value. In our design, the current thread 
+running must have an artifically high priority. THe high priority thread would
+have waited on said lock, causing priority donation to the thread holding the
+lock, ie., the current thread running. Second, the thread calls thread_yield
+via sema_up, which, barring the entrance of new higher priority threads, will
+cause the higher-prioirty thread to run next.
+
+When a thread releases a lock it owns, there are two parts to the event. First
+the lock indicates to itself that it no longer has the lock. This means taking
+the lock off the list of locks a thread owns. Next, the thread updates its own
+priority. It loops through every lock it owns and records the highest prioirty of
+a thread waiting on one them. Then it sets its own prioirty to the maximum of
+that prioirty or its own base prioirty. Finally, the thread indicates to other
+threads that it has released the lock, by calling sema_up which also calls 
+thread_yield, switching the thread running if a higher priority thread is now
+waiting to run. In this context, in case the current thread's prioirty has dropped.
+
 
 ---- SYNCHRONIZATION ----
 
@@ -170,7 +298,7 @@ schedule
 >> how your implementation avoids it.  Can you use a lock to avoid
 >> this race?
 
-could have the case where one thread tries to change priority of another 
+One could have the case where one thread tries to change priority of another 
 thread just before that thread calls thread_set_priority() internally.
 This would result in a race condition where the receiving thread may
 revert back to another priority right after a higher priority has been
@@ -199,8 +327,19 @@ to mitigate this we can put priority donation in sema_down.
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+Added to thread struct in thread.h
 
+int niceness  
+Keeps track of the nice value for each thread
 
+int recentCPU
+Keeps track of amount of CPU time each thread received recently
+
+Added to globals in thread.c
+
+int mlfqs_load_avg; 
+Average number of threads run over the past minute, stored as Fixed Point
+Accessed in functions in thread.c to determine the load average and priority.
 
 
 ---- ALGORITHMS ----
@@ -213,23 +352,48 @@ to mitigate this we can put priority donation in sema_down.
 timer  recent_cpu    priority   thread
 ticks   A   B   C   A   B   C   to run
 -----  --  --  --  --  --  --   ------
- 0      0   0   0  63   
- 4
- 8
-12
-16
-20
-24
-28
-32
-36
+ 0      0   0   0  63  61  59     A
+ 4	4   0   0  62  61  59     A
+ 8	8   0   0  61  61  59     B
+12	8   4   0  61  60  59     A
+16	12  4   0  60  60  59     B
+20      12  8   0  60  59  59     A
+24	16  8   0  59  59  59     C
+28	16  8   4  59  59  58     B
+32	16  12  4  59  58  58     A
+36	20  12  4  58  58  58     C
 
 >> C3: Did any ambiguities in the scheduler specification make values
 >> in the table uncertain?  If so, what rule did you use to resolve
 >> them?  Does this match the behavior of your scheduler?
 
+Yes, when two threads had the same priority. We resolved this conflict by
+choosing the thread that was least recently run, which matches the round robin
+behavior of our scheduler.
+
+It was also unclear what initial priorities should be at time 0, because
+threads usually inherit the priority from their parent thread, but the
+threads above had no parent threads. We assumed that the priority of
+the threads above followed the priority specified in the equation for
+recalculation of priority in the handout. This matches the behavior
+in our scheduler when we do not know what initial priority is, with
+the exception of the initial thread.
+
 >> C4: How is the way you divided the cost of scheduling between code
 >> inside and outside interrupt context likely to affect performance?
+
+We only included what was absolutely necessary to include in the function
+timer_interrupt(). This included the calculations and updates for recent 
+CPU, load average, and priority. This also includes the function to 
+wake all threads that were slept by timer_sleep. All other scheduling
+functions such as thread_yield, thread_block, and the like were not
+completed in the interrupt context.
+
+We chose such a design to emphasize the speed of timer_interrupt.
+Were timer_interrupt too slow, it could cause the interrupt handler to
+return after most of a tick had gone by, thereby changing the outcome
+of the scheduler. To have optimum performance from each thread, we
+tried to minimize time spent in the interrupt handler.
 
 ---- RATIONALE ----
 
@@ -238,12 +402,62 @@ ticks   A   B   C   A   B   C   to run
 >> time to work on this part of the project, how might you choose to
 >> refine or improve your design?
 
+We used one ready list instead of any array of 64 ready lists for
+advanced scheduler.
+Advantages: This cleaned up our code as we did not have to loop
+through 64 lists to see if any elements resided in them.
+Disadvantages: This possibly slowed down our code because we would
+have to call list_max every time we wished to extract an element from
+the list, necessarily going through all threads in the list.
+
+We decided to create a separate fixed-point.c and h file to 
+modularize the math functions used with regard to fixed points.
+Advantages: modularity. Now any code can #include fixed-point.h and
+access the math functions involved without any extra code.
+Disadvantages: By declaring these functions in a separate file
+we would need to #include it.
+
+We reused a lot of code, using the same ready_list
+
+We wrote helper functions for setting all priorities
+
+We wrote helper functions for setting all recent cpus
+
+We made load avg a global variable so that it could be accessed from any function
+
+We decided to keep variables such as niceness, recentcpu and the current priority 
+inside thread struct.
+Advantages:
+
+reuse of the currPriority
+Advantages: Reusing currPriority led to cleaner code and less data structures used.
+Because there is a check for mlfqs, there are no conflicts between using currPriority for
+part 2 and part 3. 
+Disadvantages: 
+
+reuse of the readyElem
+
+Improving on our current design: 
+
 >> C6: The assignment explains arithmetic for fixed-point math in
 >> detail, but it leaves it open to you to implement it.  Why did you
 >> decide to implement it the way you did?  If you created an
 >> abstraction layer for fixed-point math, that is, an abstract data
 >> type and/or a set of functions or macros to manipulate fixed-point
 >> numbers, why did you do so?  If not, why not?
+
+Clarity. We believe that adding a layer of abstraction makes our code
+easier to read and easier to understand. It also decreases the size of
+our code. A few of the operations on fixed points such as mulitplication
+between two fixed-point numbers as well as the conversion from an integer to
+a fixed point, are repated several times. The choice to create an API
+for fixed points meant that we only would need to write these functions
+one time and then apply them wherever necessary. Advantages 
+of writing these functions only once are:  a) less chance of errors
+b) increased flexibility of code. To change any fixed point operations
+we need only change the .c file of the abstraction layer and volia,
+the functions are changed every time they are used.
+
 
 			   SURVEY QUESTIONS
 			   ================
@@ -257,14 +471,24 @@ the quarter.
 >> In your opinion, was this assignment, or any one of the three problems
 >> in it, too easy or too hard?  Did it take too long or too little time?
 
+The first part was conceptually the easiest, and took the least time.
+The second part took the majority of our time, and was conceptually the 
+hardest part. The third part took longer than we expected, but was not 
+conceptually hard. 
+
 >> Did you find that working on a particular part of the assignment gave
 >> you greater insight into some aspect of OS design?
+
+Part 2 gave the greatest insight into threading.
 
 >> Is there some particular fact or hint we should give students in
 >> future quarters to help them solve the problems?  Conversely, did you
 >> find any of our guidance to be misleading?
 
+The TAs are all really helpful.
+
 >> Do you have any suggestions for the TAs to more effectively assist
 >> students, either for future quarters or the remaining projects?
 
 >> Any other comments?
+

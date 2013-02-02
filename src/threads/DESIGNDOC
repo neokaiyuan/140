@@ -404,6 +404,12 @@ Keeps track of the nice value for each thread
 int recentCPU
 Keeps track of amount of CPU time each thread received recently
 
+Added to globals in thread.c
+
+int mlfqs_load_avg; 
+Average number of threads run over the past minute, stored as Fixed Point
+Accessed in functions in thread.c to determine the load average and priority.
+
 
 ---- ALGORITHMS ----
 
@@ -432,11 +438,31 @@ ticks   A   B   C   A   B   C   to run
 
 Yes, when two threads had the same priority. We resolved this conflict by
 choosing the thread that was least recently run, which matches the round robin
-behavior of our scheduler. 
+behavior of our scheduler.
+
+It was also unclear what initial priorities should be at time 0, because
+threads usually inherit the priority from their parent thread, but the
+threads above had no parent threads. We assumed that the priority of
+the threads above followed the priority specified in the equation for
+recalculation of priority in the handout. This matches the behavior
+in our scheduler when we do not know what initial priority is, with
+the exception of the initial thread.
 
 >> C4: How is the way you divided the cost of scheduling between code
 >> inside and outside interrupt context likely to affect performance?
 
+We only included what was absolutely necessary to include in the function
+timer_interrupt(). This included the calculations and updates for recent 
+CPU, load average, and priority. This also includes the function to 
+wake all threads that were slept by timer_sleep. All other scheduling
+functions such as thread_yield, thread_block, and the like were not
+completed in the interrupt context.
+
+We chose such a design to emphasize the speed of timer_interrupt.
+Were timer_interrupt too slow, it could cause the interrupt handler to
+return after most of a tick had gone by, thereby changing the outcome
+of the scheduler. To have optimum performance from each thread, we
+tried to minimize time spent in the interrupt handler.
 
 ---- RATIONALE ----
 
@@ -444,6 +470,43 @@ behavior of our scheduler.
 >> disadvantages in your design choices.  If you were to have extra
 >> time to work on this part of the project, how might you choose to
 >> refine or improve your design?
+
+We used one ready list instead of any array of 64 ready lists for
+advanced scheduler.
+Advantages: This cleaned up our code as we did not have to loop
+through 64 lists to see if any elements resided in them.
+Disadvantages: This possibly slowed down our code because we would
+have to call list_max every time we wished to extract an element from
+the list, necessarily going through all threads in the list.
+
+We decided to create a separate fixed-point.c and h file to 
+modularize the math functions used with regard to fixed points.
+Advantages: modularity. Now any code can #include fixed-point.h and
+access the math functions involved without any extra code.
+Disadvantages: By declaring these functions in a separate file
+we would need to #include it.
+
+We reused a lot of code, using the same ready_list
+
+We wrote helper functions for setting all priorities
+
+We wrote helper functions for setting all recent cpus
+
+We made load avg a global variable so that it could be accessed from any function
+
+We decided to keep variables such as niceness, recentcpu and the current priority 
+inside thread struct.
+Advantages:
+
+reuse of the currPriority
+Advantages: Reusing currPriority led to cleaner code and less data structures used.
+Because there is a check for mlfqs, there are no conflicts between using currPriority for
+part 2 and part 3. 
+Disadvantages: 
+
+reuse of the readyElem
+
+Improving on our current design: 
 
 >> C6: The assignment explains arithmetic for fixed-point math in
 >> detail, but it leaves it open to you to implement it.  Why did you
@@ -458,11 +521,11 @@ our code. A few of the operations on fixed points such as mulitplication
 between two fixed-point numbers as well as the conversion from an integer to
 a fixed point, are repated several times. The choice to create an API
 for fixed points meant that we only would need to write these functions
-one time and then apply them wherever necessary. Healthy side
-effects of writing these functions only once are:  a) less chance of errors
+one time and then apply them wherever necessary. Advantages 
+of writing these functions only once are:  a) less chance of errors
 b) increased flexibility of code. To change any fixed point operations
-we need only change the .c file of the abstraction layer and volia
-it is changed every time it is used.
+we need only change the .c file of the abstraction layer and volia,
+the functions are changed every time they are used.
 
 
 			   SURVEY QUESTIONS
@@ -477,14 +540,24 @@ the quarter.
 >> In your opinion, was this assignment, or any one of the three problems
 >> in it, too easy or too hard?  Did it take too long or too little time?
 
+The first part was conceptually the easiest, and took the least time.
+The second part took the majority of our time, and was conceptually the 
+hardest part. The third part took longer than we expected, but was not 
+conceptually hard. 
+
 >> Did you find that working on a particular part of the assignment gave
 >> you greater insight into some aspect of OS design?
+
+Part 2 gave the greatest insight into threading.
 
 >> Is there some particular fact or hint we should give students in
 >> future quarters to help them solve the problems?  Conversely, did you
 >> find any of our guidance to be misleading?
 
+The TAs are all really helpful.
+
 >> Do you have any suggestions for the TAs to more effectively assist
 >> students, either for future quarters or the remaining projects?
 
 >> Any other comments?
+
