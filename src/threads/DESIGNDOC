@@ -353,7 +353,7 @@ ticks   A   B   C   A   B   C   to run
 
 Yes, when two threads had the same priority. We resolved this conflict by
 choosing the thread that was least recently run, which matches the round robin
-behavior of our scheduler. 
+behavior of our scheduler.  
 
 >> C4: How is the way you divided the cost of scheduling between code
 >> inside and outside interrupt context likely to affect performance?
@@ -365,6 +365,10 @@ behavior of our scheduler.
 >> disadvantages in your design choices.  If you were to have extra
 >> time to work on this part of the project, how might you choose to
 >> refine or improve your design?
+
+Advantages: We used one list instead of any array of 64 lists.
+
+Disadvantages: 
 
 >> C6: The assignment explains arithmetic for fixed-point math in
 >> detail, but it leaves it open to you to implement it.  Why did you
@@ -379,11 +383,11 @@ our code. A few of the operations on fixed points such as mulitplication
 between two fixed-point numbers as well as the conversion from an integer to
 a fixed point, are repated several times. The choice to create an API
 for fixed points meant that we only would need to write these functions
-one time and then apply them wherever necessary. Healthy side
-effects of writing these functions only once are:  a) less chance of errors
+one time and then apply them wherever necessary. Advantages 
+of writing these functions only once are:  a) less chance of errors
 b) increased flexibility of code. To change any fixed point operations
-we need only change the .c file of the abstraction layer and volia
-it is changed every time it is used.
+we need only change the .c file of the abstraction layer and volia,
+the functions are changed every time they are used.
 
 
 			   SURVEY QUESTIONS
@@ -398,14 +402,24 @@ the quarter.
 >> In your opinion, was this assignment, or any one of the three problems
 >> in it, too easy or too hard?  Did it take too long or too little time?
 
+The first part was conceptually the easiest, and took the least time.
+The second part took the majority of our time, and was conceptually the 
+hardest part. The third part took longer than we expected, but was not 
+conceptually hard. 
+
 >> Did you find that working on a particular part of the assignment gave
 >> you greater insight into some aspect of OS design?
+
+Part 2 gave the greatest insight into threading.
 
 >> Is there some particular fact or hint we should give students in
 >> future quarters to help them solve the problems?  Conversely, did you
 >> find any of our guidance to be misleading?
 
+The TAs are all really helpful.
+
 >> Do you have any suggestions for the TAs to more effectively assist
 >> students, either for future quarters or the remaining projects?
 
 >> Any other comments?
+
