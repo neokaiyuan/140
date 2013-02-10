@@ -15,6 +15,9 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
+//1) Print out the system call number
+//2) Have a switch or 'if' statements to call the correct function
+//Note. SysCallNumbers #defined in lib/syscall-nr.h
   printf ("system call!\n");
   thread_exit ();
 }
