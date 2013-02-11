@@ -37,15 +37,18 @@ syscall_handler (struct intr_frame *f)
   if (!addr_valid (esp)) {
     //Stop process
     //Free Assocated memory
+    //Below, not thread_exit, instead call our function
     thread_exit();
-  }  
-  int syscall_num = *(int *) esp;
-  
+  }
+
+  int syscall_num = *(int *) esp;  
   switch (syscall_num) {
     case SYS_HALT: 
       halt ();
       break;
     case SYS_EXIT:
+      int status = *(int *) get_arg_n(1, esp);
+      memcpy(&f->eax, &status, sizeof(int));
       exit (*(int *) get_arg_n(1, esp));
       break;
     case SYS_EXEC:
@@ -53,42 +56,42 @@ syscall_handler (struct intr_frame *f)
       memcpy(&f->eax, &pid, sizeof(pid_t));
       break;
     case SYS_WAIT:
-      int to_return = wait (*(pid_t *) get_arg_n(1, esp));
-      memcpy(&f->eax, &to_return, sizeof(int));
+      int retval = wait (*(pid_t *) get_arg_n(1, esp));
+      memcpy(&f->eax, &retval, sizeof(int));
       break;
     case SYS_CREATE:
-      bool to_return = create (*(char **) get_arg_n(1, esp), 
+      bool retval = create (*(char **) get_arg_n(1, esp), 
              *(unsigned *) get_arg_n(2, esp));
-      memcpy(&f->eax, &to_return, sizeof(bool));
+      memcpy(&f->eax, &retval, sizeof(bool));
       break;
     case SYS_REMOVE:
-      bool to_return = remove (*(char **) get_arg_n(1, esp)); 
-      memcpy(&f->eax, &to_return, sizeof(bool));
+      bool retval = remove (*(char **) get_arg_n(1, esp)); 
+      memcpy(&f->eax, &retval, sizeof(bool));
       break; 
     case SYS_OPEN:
-      int to_return = open (*(char **) get_arg_n(1, esp));
-      memcpy(&f->eax, &to_return, sizeof(int));
+      int retval = open (*(char **) get_arg_n(1, esp));
+      memcpy(&f->eax, &retval, sizeof(int));
       break;
     case SYS_FILESIZE:
-      int to_return = filesize (*(int *) get_arg_n(1, esp));
-      memcpy(&f->eax, &to_return, sizeof(int));
+      int retval = filesize (*(int *) get_arg_n(1, esp));
+      memcpy(&f->eax, &retval, sizeof(int));
       break;
     case SYS_READ:
-      int to_return = read (*(int *) get_arg_n (1, esp), 
+      int retval = read (*(int *) get_arg_n (1, esp), 
              *(void **) get_arg_n(2, esp), *(unsigned *) get_arg_n(3, esp));
-      memcpy(&f->eax, &to_return, sizeof(int));
+      memcpy(&f->eax, &retval, sizeof(int));
       break;
     case SYS_WRITE:
-      int to_return = write (*(int *) get_arg_n(1, esp), 
+      int retval = write (*(int *) get_arg_n(1, esp), 
              *(void **) get_arg_n(2, esp), *(unsigned *) get_arg_n(3, esp));
-      memcpy(&f->eax, &to_return, sizeof(int));
+      memcpy(&f->eax, &retval, sizeof(int));
       break;
     case SYS_SEEK:
       seek (*(int *) get_arg_n(1, esp), *(unsigned *) get_arg_n(2, esp));
       break;
     case SYS_TELL:
-      unsigned to_return = tell (*(int *) get_arg_n(1, esp));
-      memcpy(&f->eax, &to_return, sizeof(unsigned));
+      unsigned retval = tell (*(int *) get_arg_n(1, esp));
+      memcpy(&f->eax, &retval, sizeof(unsigned));
       break;
     case SYS_CLOSE:
       close (*(int *) get_arg_n(1, esp));
@@ -121,25 +124,30 @@ get_arg_n (int arg_num, void *esp) {
 static void
 halt (void)
 {
-// NO RETURN
+  shutdown_power_off();
 }
 
 static void
 exit (int status)
 {
-// NO RETURN
+  // need to implement returning status to parent
+  struct thread *t = thread_current ();
+  printf("%s: exit(%d)\n", t->name, status);
+  t->exit_status = status;
+  thread_exit ();
 }
 
 static pid_t
 exec (const char *file)
 {
-
+  char *filename = 
+  pid_t processID = (pid_t) process_execute();  
 }
 
 static int
 wait (pid_t)
 {
-
+  
 }
 
 static bool

@@ -112,6 +112,9 @@ struct thread
 
 		int niceness;												/* Factor used to determine priority */
 		int recentCPU;											/* Recent CPU usage stored as FP*/
+
+    struct thread *parent;
+    struct list children;
   };
 
 /* If false (default), use round-robin scheduler.
