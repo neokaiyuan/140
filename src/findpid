@@ -1,0 +1,106 @@
+examples/insult.c:"egotistical", "ungrateful", "stupid", "moronic", "fat", "ugly", "puny", "pitiful",
+examples/insult.c:"fleas", "22", "weasels", "22", "gnats", "South", "American", "killer", "bees", "spiders",
+examples/mcat.c:      mapid_t map;
+examples/mcp.c:  mapid_t in_map, out_map;
+examples/recursor.c:  pid_t pid;
+examples/recursor.c:      pid = exec (buffer);
+examples/recursor.c:        retval = wait (pid);
+examples/shell.c:          pid_t pid = exec (command);
+examples/shell.c:          if (pid != PID_ERROR)
+examples/shell.c:            printf ("\"%s\": exit code %d\n", command, wait (pid));
+lib/user/syscall.c:pid_t
+lib/user/syscall.c:  return (pid_t) syscall1 (SYS_EXEC, file);
+lib/user/syscall.c:wait (pid_t pid)
+lib/user/syscall.c:  return syscall1 (SYS_WAIT, pid);
+lib/user/syscall.c:mapid_t
+lib/user/syscall.c:munmap (mapid_t mapid)
+lib/user/syscall.c:  syscall1 (SYS_MUNMAP, mapid);
+lib/user/syscall.h:typedef int pid_t;
+lib/user/syscall.h:#define PID_ERROR ((pid_t) -1)
+lib/user/syscall.h:typedef int mapid_t;
+lib/user/syscall.h:#define MAP_FAILED ((mapid_t) -1)
+lib/user/syscall.h:pid_t exec (const char *file);
+lib/user/syscall.h:int wait (pid_t);
+lib/user/syscall.h:mapid_t mmap (int fd, void *addr);
+lib/user/syscall.h:void munmap (mapid_t);
+Binary file lib/user/.syscall.c.swp matches
+Binary file lib/user/.syscall.h.swp matches
+tests/filesys/base/syn-read.c:  pid_t children[CHILD_CNT];
+tests/filesys/base/syn-write.c:  pid_t children[CHILD_CNT];
+tests/filesys/extended/syn-rw.c:  pid_t children[CHILD_CNT];
+tests/lib.c:exec_children (const char *child_name, pid_t pids[], size_t child_cnt) 
+tests/lib.c:      CHECK ((pids[i] = exec (cmd_line)) != PID_ERROR,
+tests/lib.c:wait_children (pid_t pids[], size_t child_cnt) 
+tests/lib.c:      int status = wait (pids[i]);
+tests/lib.h:void exec_children (const char *child_name, pid_t pids[], size_t child_cnt);
+tests/lib.h:void wait_children (pid_t pids[], size_t child_cnt);
+tests/userprog/Make.tests:wait-twice wait-killed wait-bad-pid multi-recurse multi-child-fd        \
+tests/userprog/Make.tests:tests/userprog/wait-bad-pid_SRC = tests/userprog/wait-bad-pid.c tests/main.c
+tests/userprog/Rubric.robustness:5	wait-bad-pid
+tests/userprog/multi-recurse.c:      pid_t child_pid;
+tests/userprog/multi-recurse.c:      CHECK ((child_pid = exec (child_cmd)) != -1, "exec(\"%s\")", child_cmd);
+tests/userprog/multi-recurse.c:      code = wait (child_pid);
+tests/userprog/no-vm/multi-oom.c:static pid_t
+tests/userprog/no-vm/multi-oom.c:      pid_t child_pid;
+tests/userprog/no-vm/multi-oom.c:          child_pid = spawn_child (n + 1, CRASH);
+tests/userprog/no-vm/multi-oom.c:          if (child_pid != -1)
+tests/userprog/no-vm/multi-oom.c:              if (wait (child_pid) != -1)
+tests/userprog/no-vm/multi-oom.c:      child_pid = spawn_child (n + 1, RECURSE);
+tests/userprog/no-vm/multi-oom.c:      if (child_pid == -1)
+tests/userprog/no-vm/multi-oom.c:      int reached_depth = wait (child_pid);
+tests/userprog/rox-child.inc:  pid_t child;
+tests/userprog/wait-bad-pid.c:/* Waits for an invalid pid.  This may fail or terminate the
+tests/userprog/wait-bad-pid.c:  wait ((pid_t) 0x0c020301);
+tests/userprog/wait-bad-pid.ck:(wait-bad-pid) begin
+tests/userprog/wait-bad-pid.ck:(wait-bad-pid) end
+tests/userprog/wait-bad-pid.ck:wait-bad-pid: exit(0)
+tests/userprog/wait-bad-pid.ck:(wait-bad-pid) begin
+tests/userprog/wait-bad-pid.ck:wait-bad-pid: exit(-1)
+tests/userprog/wait-twice.c:  pid_t child = exec ("child-simple");
+tests/vm/mmap-clean.c:  mapid_t map;
+tests/vm/mmap-close.c:  mapid_t map;
+tests/vm/mmap-exit.c:  pid_t child;
+tests/vm/mmap-inherit.c:  pid_t child;
+tests/vm/mmap-read.c:  mapid_t map;
+tests/vm/mmap-remove.c:  mapid_t map;
+tests/vm/mmap-unmap.c:  mapid_t map;
+tests/vm/mmap-write.c:  mapid_t map;
+tests/vm/page-merge-seq.c:      pid_t child;
+tests/vm/page-parallel.c:  pid_t children[CHILD_CNT];
+tests/vm/parallel-merge.c:  pid_t children[CHUNK_CNT];
+Binary file userprog/.syscall.c.swp matches
+userprog/DESIGNDOC:>> B11: The default tid_t to pid_t mapping is the identity mapping.
+userprog/syscall.c:static pid_t exec (const char *file);
+userprog/syscall.c:static int wait (pid_t);
+userprog/syscall.c:      memcpy(&f->eax, &(exec (*(char **) get_arg_n(1, esp))), sizeof(pid_t));
+userprog/syscall.c:      memcpy(&f->eax, &(wait (*(pid_t *) get_arg_n(1, esp))), sizeof(int));
+userprog/syscall.c:static pid_t
+userprog/syscall.c:wait (pid_t)
+utils/pintos:    my ($pid) = fork;
+utils/pintos:    if (!defined ($pid)) {
+utils/pintos:    } elsif (!$pid) {
+utils/pintos:	local $SIG{ALRM} = sub { timeout ($pid, $cause, $cleanup); };
+utils/pintos:	local $SIG{INT} = sub { relay_signal ($pid, "INT", $cleanup); };
+utils/pintos:	local $SIG{TERM} = sub { relay_signal ($pid, "TERM", $cleanup); };
+utils/pintos:		if (waitpid ($pid, WNOHANG) != 0) {
+utils/pintos:		waitpid ($pid, 0), last
+utils/pintos:	    waitpid ($pid, 0);
+utils/pintos:# relay_signal($pid, $signal, &$cleanup)
+utils/pintos:# Relays $signal to $pid and then reinvokes it for us with the default
+utils/pintos:    my ($pid, $signal, $cleanup) = @_;
+utils/pintos:    kill $signal, $pid;
+utils/pintos:    kill $signal, getpid ();
+utils/pintos:# timeout($pid, $cause, &$cleanup)
+utils/pintos:# Interrupts $pid and dies with a timeout error message,
+utils/pintos:    my ($pid, $cause, $cleanup) = @_;
+utils/pintos:    kill "INT", $pid;
+utils/pintos:    waitpid ($pid, 0);
+utils/squish-pty.c:  pid_t pid;
+utils/squish-pty.c:  pid = fork ();
+utils/squish-pty.c:  if (pid < 0)
+utils/squish-pty.c:  else if (pid != 0) 
+utils/squish-pty.c:      if (waitpid (pid, &status, WNOHANG) > 0)
+utils/squish-unix.c:  pid_t pid;
+utils/squish-unix.c:  pid = fork ();
+utils/squish-unix.c:  if (pid < 0)
+utils/squish-unix.c:  else if (pid != 0) 
