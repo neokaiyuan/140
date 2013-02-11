@@ -14,9 +14,11 @@
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
+#include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp, void *aux);
@@ -88,11 +90,13 @@ start_process (void *aux)
   success = load (file_name, &if_.eip, &if_.esp, aux);
 
   if (success) {
+    struct thread *t = thread_current();
     /* FREE THIS WHEN PARENT EXITS */
-    struct exit_info *info = malloc(sizeof(struct exit_info));
+    struct exit_info *info = malloc (sizeof(struct exit_info));
     info->tid = t->tid;
-    info->exit_status = RUNNING_THREAD_EXIT_STATUS;
-    list_push_back(t->parent->children_exit_info, info);
+    info->exit_status = RUNNING_EXIT_STATUS;
+    info->child = t;
+    list_push_back (&t->parent->children_exit_info, &info->elem);
   }
   
   /* Signals parent thread to return */  
@@ -125,8 +129,27 @@ start_process (void *aux)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
+  struct thread *t = thread_current();
+  struct list_elem *e;
+  for (e = list_begin (&t->children_exit_info);
+       e != list_end (&t->children_exit_info); e = list_next (e)) {
+    struct exit_info *info = list_entry (e, struct exit_info, elem);
+    //If the given pid is a child
+    if (info->tid == child_tid) {
+      if (info->exit_status == RUNNING_EXIT_STATUS) {
+        //Child is still running, wait for it to finish
+        t->pid_waiting_on = child_tid;
+        thread_block();
+        t->pid_waiting_on = NOBODY;
+      }
+      int status = info->exit_status;
+      list_remove(&info->elem);
+      free (info);
+      return status;
+    }
+  }
   return -1;
 }
 
@@ -137,8 +160,16 @@ process_exit (void)
   struct thread *cur = thread_current ();
   while (!list_empty (&cur->children_exit_info)) {
     struct list_elem *elem = list_pop_front (&cur->children_exit_info);
-    free (list_entry (elem, struct exit_info, elem));
+    struct exit_info *child_info = list_entry (elem, struct exit_info, elem);
+    if (child_info->child != NULL) {
+      child_info->child->parent = NULL;
+    }
+    free (child_info);
   } 
+  //If parent is waiting on this thread to finish, unblock the parent
+  if (cur->parent != NULL && cur->parent->pid_waiting_on == cur->tid) {
+      thread_unblock (cur->parent);
+  }
 
   uint32_t *pd;
 

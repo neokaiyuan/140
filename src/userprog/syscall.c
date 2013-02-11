@@ -3,9 +3,10 @@
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
-
+#include "threads/vaddr.h"
+#include "userprog/pagedir.h"
 #include "lib/string.h"
-
+#include "devices/shutdown.h"
 
 static void syscall_handler (struct intr_frame *);
 static bool addr_valid (void *ptr);
@@ -41,48 +42,52 @@ syscall_handler (struct intr_frame *f)
     thread_exit();
   }
 
+  bool retbool;
+  pid_t retpid;
+  unsigned retunsigned;
+  int status, retval;
   int syscall_num = *(int *) esp;  
   switch (syscall_num) {
     case SYS_HALT: 
       halt ();
       break;
     case SYS_EXIT:
-      int status = *(int *) get_arg_n(1, esp);
-      memcpy(&f->eax, &status, sizeof(int));
-      exit (*(int *) get_arg_n(1, esp));
+      status = *(int *) get_arg_n(1, esp);
+      memcpy (&f->eax, &status, sizeof(int));
+      exit (status);
       break;
     case SYS_EXEC:
-      pid_t pid = exec (*(char **) get_arg_n(1, esp));
-      memcpy(&f->eax, &pid, sizeof(pid_t));
+      retpid = exec (*(char **) get_arg_n(1, esp));
+      memcpy(&f->eax, &retpid, sizeof(pid_t));
       break;
     case SYS_WAIT:
-      int retval = wait (*(pid_t *) get_arg_n(1, esp));
+      retval = wait (*(pid_t *) get_arg_n(1, esp));
       memcpy(&f->eax, &retval, sizeof(int));
       break;
     case SYS_CREATE:
-      bool retval = create (*(char **) get_arg_n(1, esp), 
+      retbool = create (*(char **) get_arg_n(1, esp), 
              *(unsigned *) get_arg_n(2, esp));
-      memcpy(&f->eax, &retval, sizeof(bool));
+      memcpy(&f->eax, &retbool, sizeof(bool));
       break;
     case SYS_REMOVE:
-      bool retval = remove (*(char **) get_arg_n(1, esp)); 
-      memcpy(&f->eax, &retval, sizeof(bool));
+      retbool = remove (*(char **) get_arg_n(1, esp)); 
+      memcpy(&f->eax, &retbool, sizeof(bool));
       break; 
     case SYS_OPEN:
-      int retval = open (*(char **) get_arg_n(1, esp));
+      retval = open (*(char **) get_arg_n(1, esp));
       memcpy(&f->eax, &retval, sizeof(int));
       break;
     case SYS_FILESIZE:
-      int retval = filesize (*(int *) get_arg_n(1, esp));
+      retval = filesize (*(int *) get_arg_n(1, esp));
       memcpy(&f->eax, &retval, sizeof(int));
       break;
     case SYS_READ:
-      int retval = read (*(int *) get_arg_n (1, esp), 
+      retval = read (*(int *) get_arg_n (1, esp), 
              *(void **) get_arg_n(2, esp), *(unsigned *) get_arg_n(3, esp));
       memcpy(&f->eax, &retval, sizeof(int));
       break;
     case SYS_WRITE:
-      int retval = write (*(int *) get_arg_n(1, esp), 
+      retval = write (*(int *) get_arg_n(1, esp), 
              *(void **) get_arg_n(2, esp), *(unsigned *) get_arg_n(3, esp));
       memcpy(&f->eax, &retval, sizeof(int));
       break;
@@ -90,8 +95,8 @@ syscall_handler (struct intr_frame *f)
       seek (*(int *) get_arg_n(1, esp), *(unsigned *) get_arg_n(2, esp));
       break;
     case SYS_TELL:
-      unsigned retval = tell (*(int *) get_arg_n(1, esp));
-      memcpy(&f->eax, &retval, sizeof(unsigned));
+      retunsigned = tell (*(int *) get_arg_n(1, esp));
+      memcpy(&f->eax, &retunsigned, sizeof(unsigned));
       break;
     case SYS_CLOSE:
       close (*(int *) get_arg_n(1, esp));
@@ -108,7 +113,8 @@ syscall_handler (struct intr_frame *f)
 static bool
 addr_valid (void *ptr) 
 {
-  if (ptr < 0 || ptr >= PHYS_BASE) return false;
+  if ((int) ptr < 0 || ptr >= PHYS_BASE) return false;
+  // MAY WANT TO PUT THIS PROTOTYPE IN userprog/pagedir.h
   if (lookup_page (thread_current()->pagedir, ptr, false) == NULL) 
     return false;
   return true;
@@ -131,17 +137,21 @@ static void
 exit (int status)
 {
   // need to implement returning status to parent
-  ASSERT (status != RUNNING_THREAD_EXIT_STATUS);
+  ASSERT (status != RUNNING_EXIT_STATUS);
   struct thread *t = thread_current ();
   struct list_elem *e;
-  for (e = list_begin (&t->parent->children_exit_info);
-       e != list_end (&t->parent->children_exit_info); e = list_next (e)) {
-    struct exit_info *info = list_entry (e, struct list_info, elem);
-    if (info->tid == t->tid) {
-      info->exit_status = status;
-      break;
+  if (t->parent != NULL) {
+    for (e = list_begin (&t->parent->children_exit_info);
+        e != list_end (&t->parent->children_exit_info); e = list_next (e)) {
+      struct exit_info *info = list_entry (e, struct exit_info, elem);
+      if (info->tid == t->tid) {
+        info->exit_status = status;
+        info->child = NULL;
+        break;
+      }
     }
   }
+
   printf("%s: exit(%d)\n", t->name, status);
   thread_exit ();
 }
@@ -157,9 +167,9 @@ exec (const char *file)
 }
 
 static int
-wait (pid_t)
+wait (pid_t pid)
 {
-  
+  return process_wait (pid);
 }
 
 static bool

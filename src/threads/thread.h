@@ -5,6 +5,8 @@
 #include <list.h>
 #include <stdint.h>
 
+#include "synch.h"
+
 /* States in a thread's life cycle. */
 enum thread_status
   {
@@ -25,8 +27,9 @@ typedef int tid_t;
 #define PRI_MAX 63                      /* Highest priority. */
 #define NUM_PRIORITIES 64								/* number of priorities */
 
-#define RUNNING_THREAD_EXIT_STATUS -2
+#define RUNNING_EXIT_STATUS -2
 #define BAD_EXIT_STATUS -1
+#define NOBODY -1
 
 /* A kernel thread or user process.
 
@@ -120,6 +123,7 @@ struct thread
     struct list children_exit_info;
     struct semaphore child_sema;
     bool child_exec_status;
+    int pid_waiting_on;
   };
 
 struct exit_info
@@ -127,6 +131,7 @@ struct exit_info
   tid_t tid;
   int exit_status;
   struct list_elem elem;
+  struct thread *child;
 };
 
 /* If false (default), use round-robin scheduler.
