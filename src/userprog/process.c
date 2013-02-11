@@ -52,7 +52,7 @@ process_execute (const char *file_name)
 
   /* Tokenize fn_copy and copy pointers to those arguments in args.*/
   int max_args = (PGSIZE - sizeof(int) - sizeof(char *))/sizeof(char *);
-  char ***dst_loc = &args->argv;
+  char **dst_loc = &args->argv;
   char *token, *src_loc;
   for (token = strtok_r(fn_copy, " ", &src_loc); token != NULL; token = strtok_r(NULL, " ", &src_loc)) {
     if (max_args == 0) break; // Page of memory is full
@@ -74,9 +74,9 @@ process_execute (const char *file_name)
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *args)
+start_process (void *aux)
 {
-  char *file_name = ((struct args *) args)->argv;
+  char *file_name = ((struct args *) aux)->argv;
   struct intr_frame if_;
   bool success;
 
@@ -85,10 +85,10 @@ start_process (void *args)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp, args);
+  success = load (file_name, &if_.eip, &if_.esp, aux);
 
-  palloc_free_page (((struct args *)args)->data);
-  palloc_free_page (args);
+  palloc_free_page (((struct args *) aux)->data);
+  palloc_free_page (aux);
   /* If load failed, quit. */
   if (!success) 
     thread_exit ();
@@ -459,29 +459,29 @@ setup_stack (void **esp, void *aux)
   uint8_t *kpage;
   bool success = false;
   struct args *args = (struct args *) aux;
-  int arg_size;
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success) {
         *esp = PHYS_BASE;
+
         /* Copy actual arguments */
         int i;
         for (i = args->argc - 1; i >= 0; i--) {
-          arg_size = strlen ((&args->argv)[i]) + 1;
+          int arg_size = strlen ((&args->argv)[i]) + 1;
           *esp -= arg_size;
           strlcpy ((char *) *esp, (&args->argv)[i], arg_size);
           (&args->argv)[i] = (char *) (*esp);
         }
 
         /* 0 align */
-        int num_zeros = ((int )*esp) % sizeof(char *);
+        int num_zeros = ((int) *esp) % sizeof(char *);
         *esp -= num_zeros;
         memset(*esp, 0, num_zeros);
 
         /* Copy argument pointers */
-        for (i = args->argc -1; i >= 0; i--) {
+        for (i = args->argc - 1; i >= 0; i--) {
           *esp -= sizeof(char *);
           **(char ***) esp = (&args->argv)[i];
         }
@@ -494,11 +494,10 @@ setup_stack (void **esp, void *aux)
         *esp -= sizeof(int);
         **(int **) esp = args->argc;
    
-        /* Set  dummy function return */
-        *esp -= sizeof (void *);
-        ** (void ***) esp = 0;
-      }
-      else {
+        /* Set dummy function return */
+        *esp -= sizeof(void *);
+        memset(*esp, 0, sizeof(void *));
+      } else {
         palloc_free_page (kpage);
       }
     }
