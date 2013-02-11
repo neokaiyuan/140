@@ -25,6 +25,9 @@ typedef int tid_t;
 #define PRI_MAX 63                      /* Highest priority. */
 #define NUM_PRIORITIES 64								/* number of priorities */
 
+#define RUNNING_THREAD_EXIT_STATUS -2
+#define BAD_EXIT_STATUS -1
+
 /* A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -114,8 +117,17 @@ struct thread
 		int recentCPU;											/* Recent CPU usage stored as FP*/
 
     struct thread *parent;
-    struct list children;
+    struct list children_exit_info;
+    struct semaphore child_sema;
+    bool child_exec_status;
   };
+
+struct exit_info
+{
+  tid_t tid;
+  int exit_status;
+  struct list_elem elem;
+};
 
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.

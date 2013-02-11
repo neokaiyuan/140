@@ -87,6 +87,18 @@ start_process (void *aux)
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp, aux);
 
+  if (success) {
+    /* FREE THIS WHEN PARENT EXITS */
+    struct exit_info *info = malloc(sizeof(struct exit_info));
+    info->tid = t->tid;
+    info->exit_status = RUNNING_THREAD_EXIT_STATUS;
+    list_push_back(t->parent->children_exit_info, info);
+  }
+  
+  /* Signals parent thread to return */  
+  thread_current()->parent->child_exec_status = success; 
+  sema_up(&thread_current()->parent->child_sema);
+
   palloc_free_page (((struct args *) aux)->data);
   palloc_free_page (aux);
   /* If load failed, quit. */
@@ -123,6 +135,11 @@ void
 process_exit (void)
 {
   struct thread *cur = thread_current ();
+  while (!list_empty (&cur->children_exit_info)) {
+    struct list_elem *elem = list_pop_front (&cur->children_exit_info);
+    free (list_entry (elem, struct exit_info, elem));
+  } 
+
   uint32_t *pd;
 
   /* Destroy the current process's page directory and switch back

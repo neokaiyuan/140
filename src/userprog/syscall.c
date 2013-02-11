@@ -131,17 +131,29 @@ static void
 exit (int status)
 {
   // need to implement returning status to parent
+  ASSERT (status != RUNNING_THREAD_EXIT_STATUS);
   struct thread *t = thread_current ();
+  struct list_elem *e;
+  for (e = list_begin (&t->parent->children_exit_info);
+       e != list_end (&t->parent->children_exit_info); e = list_next (e)) {
+    struct exit_info *info = list_entry (e, struct list_info, elem);
+    if (info->tid == t->tid) {
+      info->exit_status = status;
+      break;
+    }
+  }
   printf("%s: exit(%d)\n", t->name, status);
-  t->exit_status = status;
   thread_exit ();
 }
 
 static pid_t
 exec (const char *file)
 {
-  char *filename = 
-  pid_t processID = (pid_t) process_execute();  
+  pid_t pid = (pid_t) process_execute (file);
+  if (pid == TID_ERROR) return -1;
+  sema_down(&thread_current()->child_sema); // look at start_process
+  if (thread_current()->child_exec_status == false) return -1;
+  return pid; 
 }
 
 static int

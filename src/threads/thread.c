@@ -189,8 +189,8 @@ thread_create (const char *name, int priority,
     return TID_ERROR;
 
   /* Initialize thread. */
-  init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
+  init_thread (t, name, priority);
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -556,8 +556,9 @@ init_thread (struct thread *t, const char *name, int priority)
 	}
 
   // ADDED FOR PROJECT 2
-  list_init(&t->children);
-  t->parent = NULL;
+  t->parent = thread_current ();
+  list_init(&t->children_exit_info);
+  sema_init (&t->child_sema, 0);
 
   t->magic = THREAD_MAGIC;
 
