@@ -19,7 +19,7 @@
 #include "threads/vaddr.h"
 
 static thread_func start_process NO_RETURN;
-static bool load (const char *cmdline, void (**eip) (void), void **esp);
+static bool load (const char *cmdline, void (**eip) (void), void **esp, void *aux);
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -28,46 +28,55 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
 tid_t
 process_execute (const char *file_name) 
 {
+  struct args *args;
   char *fn_copy;
   tid_t tid;
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
-  if (fn_copy == NULL)
+  if (fn_copy == NULL )
     return TID_ERROR;
-  strlcpy (fn_copy, file_name, PGSIZE);
-  
-  /* Count the number of arguments in file_name */
-  int num_tokens;
-  char *loc;
-  for (char *token = strtok_r(fn_copy, " ", &loc); token != NULL; token = strtok_r(NULL, " ", &loc)) {
-    num_tokens++;
+
+  /* Allocate a page for the args struct */
+  args = palloc_get_page (0);
+  if (args == NULL) {
+    palloc_free_page (fn_copy);
+    return TID_ERROR;
   }
 
-  /* Store the arguments in file_name */
-  char *argv[num_tokens + 1];
-  argv[0] = num_tokens;
-  int i = 1;
-  for (char *token = strtok_r(fn_copy, " ", &loc); token != NULL; token = strtok_r(NULL, " ", &loc)) {
-    argv[i] = token;
-    i++;
+  /* Set up args and copy over arguments to fn_copy */
+  args->argc = 0;
+  args->data = fn_copy;
+  strlcpy (fn_copy, file_name, PGSIZE);
+
+  /* Tokenize fn_copy and copy pointers to those arguments in args.*/
+  int max_args = (PGSIZE - sizeof(int) - sizeof(char *))/sizeof(char *);
+  char ***dst_loc = &args->argv;
+  char *token, *src_loc;
+  for (token = strtok_r(fn_copy, " ", &src_loc); token != NULL; token = strtok_r(NULL, " ", &src_loc)) {
+    if (max_args == 0) break; // Page of memory is full
+    *dst_loc = token;
+    dst_loc += sizeof(char *);
+    args->argc++;
+    max_args--;
   }
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, argv);
-  if (tid == TID_ERROR)
+  tid = thread_create (file_name, PRI_DEFAULT, start_process, args);
+  if (tid == TID_ERROR) {
     palloc_free_page (fn_copy); 
+    palloc_free_page (args);
+  }
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *argv)
+start_process (void *args)
 {
-  char *file_name =  ((char ** )argv)[1];
-  //argv[0] is the number of arguments present +1
+  char *file_name = ((struct args *) args)->argv;
   struct intr_frame if_;
   bool success;
 
@@ -76,10 +85,11 @@ start_process (void *argv)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp, argv);
+  success = load (file_name, &if_.eip, &if_.esp, args);
 
+  palloc_free_page (((struct args *)args)->data);
+  palloc_free_page (args);
   /* If load failed, quit. */
-  palloc_free_page (file_name);
   if (!success) 
     thread_exit ();
 
@@ -212,7 +222,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp);
+static bool setup_stack (void **esp, void *aux);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -448,21 +458,49 @@ setup_stack (void **esp, void *aux)
 {
   uint8_t *kpage;
   bool success = false;
-  int num_arguments = *((int *) aux)
-  char **argv = (char **) (aux + sizeof(char *));
-
+  struct args *args = (struct args *) aux;
+  int arg_size;
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success) {
         *esp = PHYS_BASE;
-        for (int i = num_arguments; i >= 0; i--) {
-          
-        {
+        /* Copy actual arguments */
+        int i;
+        for (i = args->argc - 1; i >= 0; i--) {
+          arg_size = strlen ((&args->argv)[i]) + 1;
+          *esp -= arg_size;
+          strlcpy ((char *) *esp, (&args->argv)[i], arg_size);
+          (&args->argv)[i] = (char *) (*esp);
+        }
+
+        /* 0 align */
+        int num_zeros = ((int )*esp) % sizeof(char *);
+        *esp -= num_zeros;
+        memset(*esp, 0, num_zeros);
+
+        /* Copy argument pointers */
+        for (i = args->argc -1; i >= 0; i--) {
+          *esp -= sizeof(char *);
+          **(char ***) esp = (&args->argv)[i];
+        }
+ 
+        /* Copy arguments array */
+        *esp -= sizeof(char **);
+        **(char ****) esp = *esp + sizeof(char **);         
+
+        /* Copy argc */
+        *esp -= sizeof(int);
+        **(int **) esp = args->argc;
+   
+        /* Set  dummy function return */
+        *esp -= sizeof (void *);
+        ** (void ***) esp = 0;
       }
-      else
+      else {
         palloc_free_page (kpage);
+      }
     }
   return success;
 }
