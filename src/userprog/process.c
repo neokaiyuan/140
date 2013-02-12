@@ -30,29 +30,31 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp, void *au
 tid_t
 process_execute (const char *file_name) 
 {
-  struct args *args;
+  //struct args *args;
   char *fn_copy;
   tid_t tid;
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
-  if (fn_copy == NULL )
+  if (fn_copy == NULL)
     return TID_ERROR;
 
-  /* Allocate a page for the args struct */
+  /* Allocate a page for the args struct
   args = palloc_get_page (0);
   if (args == NULL) {
     palloc_free_page (fn_copy);
     return TID_ERROR;
   }
+  */
 
-  /* Set up args and copy over arguments to fn_copy */
+  /* Set up args and copy over arguments to fn_copy
   args->argc = 0;
   args->data = fn_copy;
+  */
   strlcpy (fn_copy, file_name, PGSIZE);
 
-  /* Tokenize fn_copy and copy pointers to those arguments in args.*/
+  /* Tokenize fn_copy and copy pointers to those arguments in args.
   int max_args = (PGSIZE - sizeof(int) - sizeof(char *))/sizeof(char *);
   char **dst_loc = &args->argv;
   char *token, *src_loc;
@@ -63,22 +65,70 @@ process_execute (const char *file_name)
     args->argc++;
     max_args--;
   }
+  */
 
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, args);
+  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  
   if (tid == TID_ERROR) {
     palloc_free_page (fn_copy); 
-    palloc_free_page (args);
+//    palloc_free_page (args);
   }
+ 
   return tid;
 }
-
+static void
+setup_user_stack(void **esp, char **arguments, char *file_name)
+{
+  char *buffer[PGSIZE/2];
+  int buff_size = 0;
+  int size_to_cpy;
+  char *token; 
+  /*Add file name to this local buffer */
+  buffer[0] = file_name;
+  buff_size++;
+  /* Load in pointers to the arguments in the buffer */
+  for (token = strtok_r(NULL, " ", arguments); token!=NULL; token = strtok_r(NULL, " ", arguments)) {
+   buffer[buff_size] = token;
+   buff_size++; 
+  }
+  /*Load arguments on to stack in reverse order and replace pointers in buffer, 
+    from pointers into the palloced page of arguments, to pointers to the
+    argument's new location on the stack */
+  for (int i = buff_size-1; i >= 0; i--) {
+    size_to_cpy = strlen(buffer[i])+1;
+    *esp -= size_to_copy;
+    strlcpy((char *)*esp, buffer[i], size_to_copy);
+    /* Now update buffer's pointer to locate the argument now on the stack */
+    buffer[i] = (char *)*esp;
+  }  
+  /*Next, align esp to 4 bytes */
+  *esp -= (*esp) % sizeof(char *);
+  /*Now add null pointer at location of last argument+1 expected by the next 
+    running fuction as proscribed by calling conventions */
+  *esp = *esp - sizeof(char *);
+  *((char **)*esp) = NULL;
+  /* Next, copy to the stack, pointers to the arguments that are no at
+     higher address on the stack, again as required by calling convetions */
+  for (int i = buff_size-1; i>= 0; i--){
+    *esp -= sizeof(char *);        
+    *((char **)*esp) = buffer[i];
+  }
+  /* Next add to the stack the argv char ** */
+  *esp -= sizeof(char **);
+  *((char **)*esp) = ((int)*esp) +sizeof(char **);
+  /* Finally, add the dummy function call */
+  *esp -= sizeof(void *);
+  *((void **)*esp) = NULL;
+}
 /* A thread function that loads a user process and starts it
    running. */
 static void
 start_process (void *aux)
 {
-  char *file_name = ((struct args *) aux)->argv;
+  //char *file_name = ((struct args *) aux)->argv;
+  char *save_ptr;
+  char *file_name = strtok_r((char *) aux, " ", &save_ptr);
   struct intr_frame if_;
   bool success;
 
@@ -98,7 +148,7 @@ start_process (void *aux)
     info->child = t;
     list_push_back (&t->parent->children_exit_info, &info->elem);
   }
-  
+  setup_user_stack(&if_->esp, &save_ptr, file_name); 
   /* Signals parent thread to return */  
   thread_current()->parent->child_exec_status = success; 
   sema_up(&thread_current()->parent->child_sema);
