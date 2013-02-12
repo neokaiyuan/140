@@ -50,7 +50,8 @@ process_execute (const char *file_name)
 static void
 setup_user_stack (void **esp, char **args, char *file_name)
 {
-  char *buf[PGSIZE/2];
+//  char *buf[PGSIZE/2];
+  char **buf = palloc_get_page(0);
   buf[0] = file_name;
 
   /* parse arguments into local buffer */
@@ -96,6 +97,8 @@ setup_user_stack (void **esp, char **args, char *file_name)
   /* load dummy function call */
   *esp -= sizeof(void *);
   memset(*esp, 0, sizeof(void *));
+  
+  palloc_free_page(buf);
 }
 
 /* A thread function that loads a user process and starts it
@@ -119,15 +122,17 @@ start_process (void *aux)
     /*Initlize my exit info and put it in my parent's list
       of children */
     struct thread *t = thread_current();
-    struct exit_info *info = malloc (sizeof(struct exit_info));
-    info->tid = t->tid;
-    info->exit_status = NULL;  // only set this upon exit
-    info->child = t;
-    t->exit_info_elem = &info->elem;
-    list_push_back (&t->parent->children_exit_info, &info->elem);
+    if (t->parent != NULL) {
+      struct exit_info *info = malloc (sizeof(struct exit_info));
+      info->tid = t->tid;
+      info->exit_status = (int) NULL;  // only set this upon exit
+      info->child = t;
+      t->exit_info_elem = &info->elem;
+      list_push_back (&t->parent->children_exit_info, &info->elem);
+    }
     
     /* initialize file ptrs to 0 */
-    memset(t->file_ptrs, 0, sizeof(struct file *) * MAX_OPEN_FILES);  
+    memset(t->file_ptrs, 0, sizeof(struct file *) * MAX_FD_INDEX+1);  
     t->next_open_file_index = 2;  // 0 and 1 reserved for stdin and stdout
 
     /* load arguments onto user stack */
@@ -202,22 +207,23 @@ process_exit (void)
   }
 
   if (t->parent != NULL) {
-    struct exit_info *my_info = list_remove(t->exit_info_elem);
+    struct list_elem *e = list_remove(t->exit_info_elem);
+    struct exit_info *my_info = list_entry (e, struct exit_info, elem);
     my_info->exit_status = t->exit_status;
     my_info->child = NULL;
     list_push_front (&t->parent->children_exit_info, t->exit_info_elem);
   }
  
   //If parent is waiting on this thread to finish, unblock the parent
-  if (cur->parent != NULL && cur->parent->pid_waiting_on == cur->tid) {
-      thread_unblock (cur->parent);
+  if (t->parent != NULL && t->parent->pid_waiting_on == t->tid) {
+      thread_unblock (t->parent);
   }
 
   uint32_t *pd;
 
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
-  pd = cur->pagedir;
+  pd = t->pagedir;
   if (pd != NULL) 
     {
       /* Correct ordering here is crucial.  We must set
@@ -227,7 +233,7 @@ process_exit (void)
          directory before destroying the process's page
          directory, or our active page directory will be one
          that's been freed (and cleared). */
-      cur->pagedir = NULL;
+      t->pagedir = NULL;
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
@@ -339,7 +345,9 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
+  lock_acquire(&filesys_lock);
   file = filesys_open (file_name);
+  lock_release(&filesys_lock);
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
@@ -347,7 +355,10 @@ load (const char *file_name, void (**eip) (void), void **esp)
     }
 
   /* Read and verify executable header. */
-  if (file_read (file, &ehdr, sizeof ehdr) != sizeof ehdr
+  lock_acquire(&filesys_lock);
+  int num_bytes = file_read (file, &ehdr, sizeof ehdr);
+  lock_release(&filesys_lock);
+  if ( num_bytes != sizeof ehdr
       || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
       || ehdr.e_type != 2
       || ehdr.e_machine != 3
@@ -365,11 +376,22 @@ load (const char *file_name, void (**eip) (void), void **esp)
     {
       struct Elf32_Phdr phdr;
 
-      if (file_ofs < 0 || file_ofs > file_length (file))
-        goto done;
-      file_seek (file, file_ofs);
+      lock_acquire(&filesys_lock);
+      int length = file_length (file);
+      lock_release(&filesys_lock);
 
-      if (file_read (file, &phdr, sizeof phdr) != sizeof phdr)
+      if (file_ofs < 0 || file_ofs > length)
+        goto done;
+
+      lock_acquire(&filesys_lock);
+      file_seek (file, file_ofs);
+      lock_release(&filesys_lock);
+
+      lock_acquire(&filesys_lock);
+      int num_bytes = file_read (file, &phdr, sizeof phdr);
+      lock_release(&filesys_lock);
+
+      if (num_bytes != sizeof phdr)
         goto done;
       file_ofs += sizeof phdr;
       switch (phdr.p_type) 
@@ -429,7 +451,9 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
+  lock_acquire(&filesys_lock);
   file_close (file);
+  lock_release(&filesys_lock);
   return success;
 }
 
@@ -447,7 +471,10 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
     return false; 
 
   /* p_offset must point within FILE. */
-  if (phdr->p_offset > (Elf32_Off) file_length (file)) 
+  lock_acquire (&filesys_lock);
+  int length =  file_length (file);
+  lock_release (&filesys_lock);
+  if (phdr->p_offset > (Elf32_Off) length ) 
     return false;
 
   /* p_memsz must be at least as big as p_filesz. */
@@ -503,8 +530,10 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
-
+  
+  lock_acquire(&filesys_lock);
   file_seek (file, ofs);
+  lock_release(&filesys_lock);
   while (read_bytes > 0 || zero_bytes > 0) 
     {
       /* Calculate how to fill this page.
@@ -519,7 +548,10 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
         return false;
 
       /* Load this page. */
-      if (file_read (file, kpage, page_read_bytes) != (int) page_read_bytes)
+      lock_acquire(&filesys_lock);
+      int num_bytes = file_read (file, kpage, page_read_bytes);
+      lock_release(&filesys_lock);
+      if (num_bytes != (int) page_read_bytes)
         {
           palloc_free_page (kpage);
           return false; 

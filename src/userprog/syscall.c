@@ -1,15 +1,20 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
 #include <syscall-nr.h>
+
+#include "devices/input.h"
+#include "devices/shutdown.h"
+#include "filesys/file.h"
+#include "filesys/filesys.h"
+#include "lib/string.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/pagedir.h"
-#include "lib/string.h"
-#include "devices/shutdown.h"
+#include "userprog/process.h"
 
 static void syscall_handler (struct intr_frame *);
-static bool addr_valid (void *ptr);
+static bool addr_valid (const void *ptr);
 static void *get_arg_n (int arg_num, void *esp);
 static void halt (void) NO_RETURN;
 static void exit (int status) NO_RETURN;
@@ -25,7 +30,7 @@ static void seek (int fd, unsigned position);
 static unsigned tell (int fd);
 static void close (int fd);
 
-#define MAX_SINGLE_WRITE 300
+#define MAX_WRITE_SIZE 300
 
 void
 syscall_init (void) 
@@ -37,35 +42,36 @@ static void
 syscall_handler (struct intr_frame *f) 
 {
   void *esp = f->esp;
-  if (!addr_valid (esp)) {
+  if (!addr_valid ((const void *) esp)) {
     //Stop process
     //Free Assocated memory
     //Below, not thread_exit, instead call our function
     thread_exit();
   }
 
+  int status;
   int syscall_num = *(int *) esp;  
   switch (syscall_num) {
     case SYS_HALT: 
       halt ();
       break;
     case SYS_EXIT:
-      int status = *(int *) get_arg_n(1, esp);
+      status = *(int *) get_arg_n(1, esp);
       f->eax = status;
       exit (status);
       break;
     case SYS_EXEC:
-      (pid_t) f->eax = exec (*(char **) get_arg_n(1, esp));
+      f->eax = exec (*(char **) get_arg_n(1, esp));
       break;
     case SYS_WAIT:
       f->eax = wait (*(pid_t *) get_arg_n(1, esp));
       break;
     case SYS_CREATE:
-      (bool) f->eax = create (*(char **) get_arg_n(1, esp), 
+      f->eax = (int) create (*(char **) get_arg_n(1, esp), 
                                         *(unsigned *) get_arg_n(2, esp));
       break;
     case SYS_REMOVE:
-      (bool) f->eax = remove (*(char **) get_arg_n(1, esp)); 
+      f->eax = (int) remove (*(char **) get_arg_n(1, esp)); 
       break; 
     case SYS_OPEN:
       f->eax = open (*(char **) get_arg_n(1, esp));
@@ -85,7 +91,7 @@ syscall_handler (struct intr_frame *f)
       seek (*(int *) get_arg_n(1, esp), *(unsigned *) get_arg_n(2, esp));
       break;
     case SYS_TELL:
-      (unsigned) f->eax = tell (*(int *) get_arg_n(1, esp));
+      f->eax = tell (*(int *) get_arg_n(1, esp));
       break;
     case SYS_CLOSE:
       close (*(int *) get_arg_n(1, esp));
@@ -100,7 +106,7 @@ syscall_handler (struct intr_frame *f)
 }
 
 static bool
-addr_valid (void *ptr) 
+addr_valid (const void *ptr) 
 {
   if ((int) ptr < 0 || ptr >= PHYS_BASE) return false;
   // MAY WANT TO PUT THIS PROTOTYPE IN userprog/pagedir.h
@@ -125,7 +131,8 @@ halt (void)
 static void
 exit (int status)
 {
-  thread_current ()->exit_status = status;
+  struct thread *t = thread_current();
+  t->exit_status = status;
   printf("%s: exit(%d)\n", t->name, status);
   thread_exit ();
 }
@@ -133,6 +140,8 @@ exit (int status)
 static pid_t
 exec (const char *file)
 {
+  if (!addr_valid(file)) 
+    return -1;
   pid_t pid = (pid_t) process_execute (file);
   if (pid == TID_ERROR) return -1;
   sema_down (&thread_current()->child_exec_sema); // look at start_process
@@ -149,6 +158,8 @@ wait (pid_t pid)
 static bool
 create (const char *file, unsigned initial_size)
 {
+  if (!addr_valid(file)) 
+    return false;
   lock_acquire(&filesys_lock);
   bool create = filesys_create (file, initial_size);
   lock_release(&filesys_lock);
@@ -158,6 +169,8 @@ create (const char *file, unsigned initial_size)
 static bool
 remove (const char *file)
 {
+  if (!addr_valid(file)) 
+    return false;
   lock_acquire(&filesys_lock);
   bool remove = filesys_remove (file);
   lock_release(&filesys_lock);
@@ -167,8 +180,11 @@ remove (const char *file)
 static int
 open (const char *file)
 {
+  if (!addr_valid(file)) 
+    return -1;
   struct thread *t = thread_current ();
-  if (t->next_open_file_index == MAX_FD_INDEX+1) return -1;
+  if (t->next_open_file_index == MAX_FD_INDEX+1) 
+    return -1;
   int new_fd = t->next_open_file_index;
 
   lock_acquire(&filesys_lock);
@@ -192,6 +208,10 @@ open (const char *file)
 static int
 filesize (int fd)
 {
+  struct thread *t = thread_current ();
+  if (fd == 0 || fd == 1 || fd >= t->next_open_file_index || t->file_ptrs[fd] == NULL)
+    return -1;
+
   lock_acquire(&filesys_lock);
   int length = file_length (thread_current ()->file_ptrs[fd]);
   lock_release(&filesys_lock);
@@ -214,7 +234,7 @@ read (int fd, void *buffer, unsigned length)
   if (fd == 0) {
     int index = 0;
     char c;
-    while (index != length) {
+    while ((unsigned) index != length) {
       c = input_getc();
       memcpy (buffer + index, &c, 1);
       index++;
@@ -223,9 +243,9 @@ read (int fd, void *buffer, unsigned length)
   }
 
   lock_acquire(&filesys_lock);
-  int length = file_read (t->file_ptrs[fd], buffer, length);
+  int read_len = file_read (t->file_ptrs[fd], buffer, length);
   lock_release(&filesys_lock);
-  return length;
+  return read_len;
 }
 
 static int
@@ -243,7 +263,7 @@ write (int fd, const void *buffer, unsigned length)
 
   if (fd == 1) {
     int num_writes = length / MAX_WRITE_SIZE + 1;
-    void *src = buffer;
+    const void *src = buffer;
     while (num_writes > 0) {
       if (num_writes == 1) { 
         putbuf (src, length % MAX_WRITE_SIZE);
@@ -256,30 +276,32 @@ write (int fd, const void *buffer, unsigned length)
   } 
   
   lock_acquire(&filesys_lock);
-  int length = file_write (t->file_ptrs[fd], buffer, length);
+  int write_len = file_write (t->file_ptrs[fd], buffer, length);
   lock_release(&filesys_lock);
-  return length;
+  return write_len;
 }
 
 static void
 seek (int fd, unsigned position)
 {
+  struct thread *t = thread_current ();
   if (fd == 0 || fd == 1 || fd >= t->next_open_file_index || t->file_ptrs[fd] == NULL)
     return;
   
   lock_acquire(&filesys_lock); 
-  file_seek (thread_current ()->file_ptrs[fd], position);
+  file_seek (t->file_ptrs[fd], position);
   lock_release(&filesys_lock);
 }
 
 static unsigned
 tell (int fd)
 {
+  struct thread *t = thread_current ();
   if (fd == 0 || fd == 1 || fd >= t->next_open_file_index || t->file_ptrs[fd] == NULL)
      return -1; 
   
   lock_acquire(&filesys_lock);
-  int position = file_tell(thread_current ()->file_ptrs[fd]);
+  int position = file_tell(t->file_ptrs[fd]);
   lock_release(&filesys_lock);
   return position;
 }
@@ -287,10 +309,9 @@ tell (int fd)
 static void
 close (int fd)
 {
+  struct thread *t = thread_current ();
   if (fd == 0 || fd == 1 || fd >= t->next_open_file_index || t->file_ptrs[fd] == NULL)
      return; 
-  
-  struct thread *t = thread_current ();
 
   lock_acquire(&filesys_lock);
   file_close (t->file_ptrs[fd]);

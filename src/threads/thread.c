@@ -558,6 +558,8 @@ init_thread (struct thread *t, const char *name, int priority)
   // ADDED FOR PROJECT 2
   if (t != initial_thread) {
     t->parent = thread_current ();
+  } else {
+    t->parent = NULL;
   }
   list_init (&t->children_exit_info);
   sema_init (&t->child_exec_sema, 0);
