@@ -19,9 +19,8 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
-
 static thread_func start_process NO_RETURN;
-static bool load (const char *cmdline, void (**eip) (void), void **esp, void *aux);
+static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -30,7 +29,6 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp, void *au
 tid_t
 process_execute (const char *file_name) 
 {
-  //struct args *args;
   char *fn_copy;
   tid_t tid;
 
@@ -39,95 +37,72 @@ process_execute (const char *file_name)
   fn_copy = palloc_get_page (0);
   if (fn_copy == NULL)
     return TID_ERROR;
-
-  /* Allocate a page for the args struct
-  args = palloc_get_page (0);
-  if (args == NULL) {
-    palloc_free_page (fn_copy);
-    return TID_ERROR;
-  }
-  */
-
-  /* Set up args and copy over arguments to fn_copy
-  args->argc = 0;
-  args->data = fn_copy;
-  */
   strlcpy (fn_copy, file_name, PGSIZE);
-
-  /* Tokenize fn_copy and copy pointers to those arguments in args.
-  int max_args = (PGSIZE - sizeof(int) - sizeof(char *))/sizeof(char *);
-  char **dst_loc = &args->argv;
-  char *token, *src_loc;
-  for (token = strtok_r(fn_copy, " ", &src_loc); token != NULL; token = strtok_r(NULL, " ", &src_loc)) {
-    if (max_args == 0) break; // Page of memory is full
-    *dst_loc = token;
-    dst_loc += sizeof(char *);
-    args->argc++;
-    max_args--;
-  }
-  */
 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
-  
-  if (tid == TID_ERROR) {
+  if (tid == TID_ERROR)
     palloc_free_page (fn_copy); 
-//    palloc_free_page (args);
-  }
- 
+
   return tid;
 }
+
 static void
-setup_user_stack(void **esp, char **arguments, char *file_name)
+setup_user_stack (void **esp, char **args, char *file_name)
 {
-  char *buffer[PGSIZE/2];
-  int buff_size = 0;
-  int size_to_cpy;
+  char *buf[PGSIZE/2];
+  buf[0] = file_name;
+
+  /* parse arguments into local buffer */
+  int num_args = 1; // includes file name
   char *token; 
-  /*Add file name to this local buffer */
-  buffer[0] = file_name;
-  buff_size++;
-  /* Load in pointers to the arguments in the buffer */
-  for (token = strtok_r(NULL, " ", arguments); token!=NULL; token = strtok_r(NULL, " ", arguments)) {
-   buffer[buff_size] = token;
-   buff_size++; 
+  for (token = strtok_r (NULL, " ", args); token != NULL; token = strtok_r (NULL, " ", args)) {
+    buf[num_args] = token;
+    num_args++; 
   }
-  /*Load arguments on to stack in reverse order and replace pointers in buffer, 
-    from pointers into the palloced page of arguments, to pointers to the
-    argument's new location on the stack */
+
+  /* load arguments onto stack in reverse order */
   int i;
-  for (i = buff_size-1; i >= 0; i--) {
-    size_to_cpy = strlen(buffer[i])+1;
-    *esp -= size_to_cpy;
-    strlcpy((char *)*esp, buffer[i], size_to_cpy);
-    /* Now update buffer's pointer to locate the argument now on the stack */
-    buffer[i] = (char *)*esp;
+  for (i = num_args-1; i >= 0; i--) {
+    int arg_size = strlen(buf[i]) + 1;
+    *esp -= arg_size;
+    strlcpy(*(char **) esp, buf[i], arg_size);
+    buf[i] = *(char **) esp; // replace memory in buffer with argument's stack address
   }  
-  /*Next, align esp to 4 bytes */
-  *esp -= ((int)*esp) % sizeof(char *);
-  /*Now add null pointer at location of last argument+1 expected by the next 
-    running fuction as proscribed by calling conventions */
-  *esp = *esp - sizeof(char *);
-  *((char **)*esp) = NULL;
-  /* Next, copy to the stack, pointers to the arguments that are no at
-     higher address on the stack, again as required by calling convetions */
-  for (i = buff_size-1; i>= 0; i--){
+
+  /* 0 align */
+  int num_zeros = (*(int *) esp) % sizeof(char *);
+  *esp -= num_zeros;
+  memset(*esp, 0, num_zeros);
+
+  /* load null pointer above pointer to last argument */
+  *esp -= sizeof(char *);
+  memset(*esp, 0, sizeof(char *));
+
+  /* load pointers to the arguments */
+  for (i = num_args-1; i >= 0; i--) {
     *esp -= sizeof(char *);        
-    *((char **)*esp) = buffer[i];
+    **(char ***) esp = buf[i];
   }
-  /* Next add to the stack the argv char ** */
+
+  /* load address of first argument's pointer */
   *esp -= sizeof(char **);
-  *((char **)*esp) = (*esp) +sizeof(char **);
-  /* Finally, add the dummy function call */
+  **(char ****) esp = *esp + sizeof(char **);
+
+  /* load num_args */
+  *esp -= sizeof(int);
+  **(int **) esp = num_args;
+
+  /* load dummy function call */
   *esp -= sizeof(void *);
-  *((void **)*esp) = NULL;
+  memset(*esp, 0, sizeof(void *));
 }
+
 /* A thread function that loads a user process and starts it
    running. */
 static void
 start_process (void *aux)
 {
-  //char *file_name = ((struct args *) aux)->argv;
   char *save_ptr;
   char *file_name = strtok_r((char *) aux, " ", &save_ptr);
   struct intr_frame if_;
@@ -138,25 +113,34 @@ start_process (void *aux)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp, aux);
+  success = load (file_name, &if_.eip, &if_.esp);
 
   if (success) {
+    /*Initlize my exit info and put it in my parent's list
+      of children */
     struct thread *t = thread_current();
-    /* FREE THIS WHEN PARENT EXITS */
     struct exit_info *info = malloc (sizeof(struct exit_info));
     info->tid = t->tid;
-    info->exit_status = RUNNING_EXIT_STATUS;
+    info->exit_status = NULL;  // only set this upon exit
     info->child = t;
+    t->exit_info_elem = &info->elem;
     list_push_back (&t->parent->children_exit_info, &info->elem);
-  }
-  /*Now set up the user stack so that the argumetns are passed */
-  setup_user_stack(&if_.esp, &save_ptr, file_name); 
-  /* Signals parent thread to return */  
-  thread_current()->parent->child_exec_status = success; 
-  sema_up(&thread_current()->parent->child_sema);
+    
+    /* initialize file ptrs to 0 */
+    memset(t->file_ptrs, 0, sizeof(struct file *) * MAX_OPEN_FILES);  
+    t->next_open_file_index = 2;  // 0 and 1 reserved for stdin and stdout
 
-  palloc_free_page (((struct args *) aux)->data);
+    /* load arguments onto user stack */
+    setup_user_stack (&if_.esp, &save_ptr, file_name); 
+  }
+
+
+  /* signal parent thread to return */  
+  thread_current()->parent->child_exec_success = success; 
+  sema_up (&thread_current()->parent->child_exec_sema);
+
   palloc_free_page (aux);
+
   /* If load failed, quit. */
   if (!success) 
     thread_exit ();
@@ -188,16 +172,14 @@ process_wait (tid_t child_tid)
   for (e = list_begin (&t->children_exit_info);
        e != list_end (&t->children_exit_info); e = list_next (e)) {
     struct exit_info *info = list_entry (e, struct exit_info, elem);
-    //If the given pid is a child
     if (info->tid == child_tid) {
-      if (info->exit_status == RUNNING_EXIT_STATUS) {
-        //Child is still running, wait for it to finish
+      if (info->child != NULL) {  // child != NULL means child still running
         t->pid_waiting_on = child_tid;
         thread_block();
         t->pid_waiting_on = NOBODY;
       }
       int status = info->exit_status;
-      list_remove(&info->elem);
+      list_remove (&info->elem);
       free (info);
       return status;
     }
@@ -209,15 +191,23 @@ process_wait (tid_t child_tid)
 void
 process_exit (void)
 {
-  struct thread *cur = thread_current ();
-  while (!list_empty (&cur->children_exit_info)) {
-    struct list_elem *elem = list_pop_front (&cur->children_exit_info);
+  struct thread *t = thread_current ();
+  while (!list_empty (&t->children_exit_info)) {
+    struct list_elem *elem = list_pop_front (&t->children_exit_info);
     struct exit_info *child_info = list_entry (elem, struct exit_info, elem);
     if (child_info->child != NULL) {
       child_info->child->parent = NULL;
     }
     free (child_info);
-  } 
+  }
+
+  if (t->parent != NULL) {
+    struct exit_info *my_info = list_remove(t->exit_info_elem);
+    my_info->exit_status = t->exit_status;
+    my_info->child = NULL;
+    list_push_front (&t->parent->children_exit_info, t->exit_info_elem);
+  }
+ 
   //If parent is waiting on this thread to finish, unblock the parent
   if (cur->parent != NULL && cur->parent->pid_waiting_on == cur->tid) {
       thread_unblock (cur->parent);
@@ -322,7 +312,7 @@ struct Elf32_Phdr
 #define PF_W 2          /* Writable. */
 #define PF_R 4          /* Readable. */
 
-static bool setup_stack (void **esp, void *aux);
+static bool setup_stack (void **esp);
 static bool validate_segment (const struct Elf32_Phdr *, struct file *);
 static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
                           uint32_t read_bytes, uint32_t zero_bytes,
@@ -333,7 +323,7 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
    and its initial stack pointer into *ESP.
    Returns true if successful, false otherwise. */
 bool
-load (const char *file_name, void (**eip) (void), void **esp, void *aux) 
+load (const char *file_name, void (**eip) (void), void **esp) 
 {
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
@@ -429,7 +419,7 @@ load (const char *file_name, void (**eip) (void), void **esp, void *aux)
     }
 
   /* Set up stack. */
-  if (!setup_stack (esp, aux))
+  if (!setup_stack (esp))
     goto done;
 
   /* Start address. */
@@ -554,11 +544,11 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 /* Create a minimal stack by mapping a zeroed page at the top of
    user virtual memory. */
 static bool
-setup_stack (void **esp, void *aux) 
+setup_stack (void **esp) 
 {
   uint8_t *kpage;
   bool success = false;
-  struct args *args = (struct args *) aux;
+
   kpage = palloc_get_page (PAL_USER | PAL_ZERO);
   if (kpage != NULL) 
     {

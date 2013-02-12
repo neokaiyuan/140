@@ -556,10 +556,11 @@ init_thread (struct thread *t, const char *name, int priority)
 	}
 
   // ADDED FOR PROJECT 2
-  if (t != initial_thread)
+  if (t != initial_thread) {
     t->parent = thread_current ();
-  list_init(&t->children_exit_info);
-  sema_init (&t->child_sema, 0);
+  }
+  list_init (&t->children_exit_info);
+  sema_init (&t->child_exec_sema, 0);
   t->pid_waiting_on = NOBODY;
 
   t->magic = THREAD_MAGIC;

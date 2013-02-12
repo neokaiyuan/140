@@ -27,9 +27,9 @@ typedef int tid_t;
 #define PRI_MAX 63                      /* Highest priority. */
 #define NUM_PRIORITIES 64								/* number of priorities */
 
-#define RUNNING_EXIT_STATUS -2
-#define BAD_EXIT_STATUS -1
 #define NOBODY -1
+
+#define MAX_FD_INDEX 129                /* maximum possible fd value */
 
 /* A kernel thread or user process.
 
@@ -95,7 +95,6 @@ struct thread
     char name[16];                      /* Name (for debugging purposes). */
     uint8_t *stack;                     /* Saved stack pointer. */
     struct list_elem allelem;           /* List element for all threads list. */
-
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
@@ -121,17 +120,24 @@ struct thread
 
     struct thread *parent;
     struct list children_exit_info;
-    struct semaphore child_sema;
-    bool child_exec_status;
+    struct list_elem *exit_info_elem;    /* elem stored in parent's list */
+    struct semaphore child_exec_sema;
+    bool child_exec_success;
     int pid_waiting_on;
+    int exit_status;
+
+    /* entries begin at index 2 to ensure one-to-one mapping between
+       fds and indexes */
+    struct file *file_ptrs[MAX_FD_INDEX + 1];
+    int next_open_file_index;
   };
 
 struct exit_info
 {
   tid_t tid;
   int exit_status;
-  struct list_elem elem;
   struct thread *child;
+  struct list_elem elem;
 };
 
 /* If false (default), use round-robin scheduler.
