@@ -26,13 +26,11 @@ static unsigned tell (int fd);
 static void close (int fd);
 
 #define MAX_SINGLE_WRITE 300
-struct lock filesys_lock;
 
 void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
-  lock_init(&filesys_lock);
 }
 
 static void
