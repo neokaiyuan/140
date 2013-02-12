@@ -101,14 +101,14 @@ syscall_handler (struct intr_frame *f)
       break;  
   }
 
-  printf ("system call!\n");
-  thread_exit ();
+  //printf ("system call!\n");
+  //thread_exit ();
 }
 
 static bool
 addr_valid (const void *ptr) 
 {
-  if ((int) ptr < 0 || ptr >= PHYS_BASE) return false;
+  if ( ptr == NULL  || ptr >= PHYS_BASE) return false;
   // MAY WANT TO PUT THIS PROTOTYPE IN userprog/pagedir.h
   if (pagedir_get_page (thread_current()->pagedir, ptr) == NULL) 
     return false;
@@ -209,7 +209,7 @@ static int
 filesize (int fd)
 {
   struct thread *t = thread_current ();
-  if (fd == 0 || fd == 1 || fd >= t->next_open_file_index || t->file_ptrs[fd] == NULL)
+  if (fd == 0 || fd == 1 || fd >= MAX_FD_INDEX + 1 || t->file_ptrs[fd] == NULL)
     return -1;
 
   lock_acquire(&filesys_lock);
@@ -222,7 +222,8 @@ static int
 read (int fd, void *buffer, unsigned length)
 {
   struct thread *t = thread_current ();
-  if (fd == 1 || fd >= t->next_open_file_index || t->file_ptrs[fd] == NULL)
+  if (fd == 1 || fd >= MAX_FD_INDEX+1 || 
+      (t->file_ptrs[fd] == NULL && fd != 0))
     return -1;
 
   if (!addr_valid(buffer) || !addr_valid(buffer + length)) 
@@ -252,7 +253,8 @@ static int
 write (int fd, const void *buffer, unsigned length)
 {
   struct thread *t = thread_current();
-  if (fd == 0 || fd >= t->next_open_file_index || t->file_ptrs[fd] == NULL)
+  if (fd == 0 || fd >=  MAX_FD_INDEX+1 ||
+      (t->file_ptrs[fd] == NULL && fd != 1))
     return -1;   
   
   if (!addr_valid(buffer) || !addr_valid(buffer + length))
@@ -271,6 +273,7 @@ write (int fd, const void *buffer, unsigned length)
         putbuf(src, MAX_WRITE_SIZE);
         src += MAX_WRITE_SIZE;
       }
+      num_writes--;
     }
     return length;
   } 
@@ -285,7 +288,7 @@ static void
 seek (int fd, unsigned position)
 {
   struct thread *t = thread_current ();
-  if (fd == 0 || fd == 1 || fd >= t->next_open_file_index || t->file_ptrs[fd] == NULL)
+  if (fd == 0 || fd == 1 || fd >= MAX_FD_INDEX + 1|| t->file_ptrs[fd] == NULL)
     return;
   
   lock_acquire(&filesys_lock); 
@@ -297,7 +300,7 @@ static unsigned
 tell (int fd)
 {
   struct thread *t = thread_current ();
-  if (fd == 0 || fd == 1 || fd >= t->next_open_file_index || t->file_ptrs[fd] == NULL)
+  if (fd == 0 || fd == 1 || fd >= MAX_FD_INDEX + 1 || t->file_ptrs[fd] == NULL)
      return -1; 
   
   lock_acquire(&filesys_lock);
@@ -310,7 +313,7 @@ static void
 close (int fd)
 {
   struct thread *t = thread_current ();
-  if (fd == 0 || fd == 1 || fd >= t->next_open_file_index || t->file_ptrs[fd] == NULL)
+  if (fd == 0 || fd == 1 || fd >= MAX_FD_INDEX + 1 || t->file_ptrs[fd] == NULL)
      return; 
 
   lock_acquire(&filesys_lock);

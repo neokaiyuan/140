@@ -207,11 +207,12 @@ process_exit (void)
   }
 
   if (t->parent != NULL) {
-    struct list_elem *e = list_remove(t->exit_info_elem);
+    //struct list_elem *e = list_remove(t->exit_info_elem);
+    struct list_elem *e = t->exit_info_elem;
     struct exit_info *my_info = list_entry (e, struct exit_info, elem);
     my_info->exit_status = t->exit_status;
     my_info->child = NULL;
-    list_push_front (&t->parent->children_exit_info, t->exit_info_elem);
+    //list_push_front (&t->parent->children_exit_info, t->exit_info_elem);
   }
  
   //If parent is waiting on this thread to finish, unblock the parent
