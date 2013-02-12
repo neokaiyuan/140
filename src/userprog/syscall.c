@@ -115,7 +115,7 @@ addr_valid (void *ptr)
 {
   if ((int) ptr < 0 || ptr >= PHYS_BASE) return false;
   // MAY WANT TO PUT THIS PROTOTYPE IN userprog/pagedir.h
-  if (lookup_page (thread_current()->pagedir, ptr, false) == NULL) 
+  if (pagedir_get_page(thread_current()->pagedir, ptr) == NULL) 
     return false;
   return true;
 }

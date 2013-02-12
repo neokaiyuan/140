@@ -95,28 +95,29 @@ setup_user_stack(void **esp, char **arguments, char *file_name)
   /*Load arguments on to stack in reverse order and replace pointers in buffer, 
     from pointers into the palloced page of arguments, to pointers to the
     argument's new location on the stack */
-  for (int i = buff_size-1; i >= 0; i--) {
+  int i;
+  for (i = buff_size-1; i >= 0; i--) {
     size_to_cpy = strlen(buffer[i])+1;
-    *esp -= size_to_copy;
-    strlcpy((char *)*esp, buffer[i], size_to_copy);
+    *esp -= size_to_cpy;
+    strlcpy((char *)*esp, buffer[i], size_to_cpy);
     /* Now update buffer's pointer to locate the argument now on the stack */
     buffer[i] = (char *)*esp;
   }  
   /*Next, align esp to 4 bytes */
-  *esp -= (*esp) % sizeof(char *);
+  *esp -= ((int)*esp) % sizeof(char *);
   /*Now add null pointer at location of last argument+1 expected by the next 
     running fuction as proscribed by calling conventions */
   *esp = *esp - sizeof(char *);
   *((char **)*esp) = NULL;
   /* Next, copy to the stack, pointers to the arguments that are no at
      higher address on the stack, again as required by calling convetions */
-  for (int i = buff_size-1; i>= 0; i--){
+  for (i = buff_size-1; i>= 0; i--){
     *esp -= sizeof(char *);        
     *((char **)*esp) = buffer[i];
   }
   /* Next add to the stack the argv char ** */
   *esp -= sizeof(char **);
-  *((char **)*esp) = ((int)*esp) +sizeof(char **);
+  *((char **)*esp) = (*esp) +sizeof(char **);
   /* Finally, add the dummy function call */
   *esp -= sizeof(void *);
   *((void **)*esp) = NULL;
@@ -148,7 +149,8 @@ start_process (void *aux)
     info->child = t;
     list_push_back (&t->parent->children_exit_info, &info->elem);
   }
-  setup_user_stack(&if_->esp, &save_ptr, file_name); 
+  /*Now set up the user stack so that the argumetns are passed */
+  setup_user_stack(&if_.esp, &save_ptr, file_name); 
   /* Signals parent thread to return */  
   thread_current()->parent->child_exec_status = success; 
   sema_up(&thread_current()->parent->child_sema);
@@ -563,38 +565,6 @@ setup_stack (void **esp, void *aux)
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success) {
         *esp = PHYS_BASE;
-
-        /* Copy actual arguments */
-        int i;
-        for (i = args->argc - 1; i >= 0; i--) {
-          int arg_size = strlen ((&args->argv)[i]) + 1;
-          *esp -= arg_size;
-          strlcpy ((char *) *esp, (&args->argv)[i], arg_size);
-          (&args->argv)[i] = (char *) (*esp);
-        }
-
-        /* 0 align */
-        int num_zeros = ((int) *esp) % sizeof(char *);
-        *esp -= num_zeros;
-        memset(*esp, 0, num_zeros);
-
-        /* Copy argument pointers */
-        for (i = args->argc - 1; i >= 0; i--) {
-          *esp -= sizeof(char *);
-          **(char ***) esp = (&args->argv)[i];
-        }
- 
-        /* Copy arguments array */
-        *esp -= sizeof(char **);
-        **(char ****) esp = *esp + sizeof(char **);         
-
-        /* Copy argc */
-        *esp -= sizeof(int);
-        **(int **) esp = args->argc;
-   
-        /* Set dummy function return */
-        *esp -= sizeof(void *);
-        memset(*esp, 0, sizeof(void *));
       } else {
         palloc_free_page (kpage);
       }
