@@ -534,7 +534,7 @@ init_thread (struct thread *t, const char *name, int priority)
   ASSERT (name != NULL);
 
 	name_length = strcspn (name, " ");
-  ASSERT(name_length <= 0);
+  ASSERT(name_length > 0);
   memset (t, 0, sizeof *t);
 
   t->status = THREAD_BLOCKED;
