@@ -191,6 +191,7 @@ process_wait (tid_t child_tid)
 
         t->pid_waiting_on = NOBODY;
       }
+
       int status = info->exit_status;
       list_remove (&info->elem);
       free (info);
@@ -251,9 +252,8 @@ process_exit (void)
   
   struct file *exec;
   lock_acquire(&filesys_lock);
-  if ((exec = filesys_open(t->name)) != NULL) {
+  if ((exec = filesys_open(t->name)) != NULL)   // checks if executable
     file_close(exec);
-  }
   lock_release(&filesys_lock);
   printf ("%s: exit(%d)\n", t->name, t->exit_status);
 }

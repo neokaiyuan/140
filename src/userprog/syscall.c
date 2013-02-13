@@ -33,13 +33,10 @@ static void close (int fd);
 
 #define MAX_WRITE_SIZE 300
 
-static struct list exec_list;
-
 void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
-  list_init(&exec_list);
 }
 
 static void
@@ -166,17 +163,6 @@ static void
 exit (int status)
 {
   struct thread *t = thread_current();
-
-  struct list_elem *e;
-  for (e = list_begin (&exec_list); e != list_end (&exec_list);
-       e = list_next(e)) {
-    struct thread *cur = list_entry (e, struct thread, exec_elem);
-    if (strcmp(cur->name, t->name) == 0) {
-      list_remove(e);
-      break;
-    }
-  }
-  
   t->exit_status = status;
   thread_exit ();
 }
@@ -192,8 +178,6 @@ exec (const char *file)
   if (pid == TID_ERROR) return -1;
   sema_down (&t->child_exec_sema); // look at start_process
   if (!t->child_exec_success) return -1;
-
-  list_push_back(&exec_list, &t->last_created_child->exec_elem);
   return pid; 
 }
 
@@ -235,21 +219,8 @@ open (const char *file)
     return -1;
   int new_fd = t->next_open_file_index;
 
-  bool is_executable = false;
-  struct list_elem *e;
-  for (e = list_begin (&exec_list); e != list_end (&exec_list);
-       e = list_next(e)) {
-    struct thread *t = list_entry (e, struct thread, exec_elem);
-    if (strcmp(t->name, file) == 0) {
-      is_executable = true;
-      break;
-    }
-  }
-
   lock_acquire(&filesys_lock);
   t->file_ptrs[new_fd] = filesys_open (file);
-  if (is_executable)
-    file_deny_write(t->file_ptrs[new_fd]);
   lock_release(&filesys_lock);
 
   if (t->file_ptrs[new_fd] == NULL)
