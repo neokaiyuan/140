@@ -115,6 +115,7 @@ mem_valid (const void *ptr, int size)
   int page_num_last_byte = (unsigned) last_byte / PGSIZE;
   int pages_in_between = page_num_last_byte - page_num_first_byte;
   const void *page_of_memory = ptr; 
+
   int i;
   for (i = 0; i < pages_in_between+1; i++) {
     if (pagedir_get_page (thread_current()->pagedir, page_of_memory) == NULL)
@@ -126,24 +127,22 @@ mem_valid (const void *ptr, int size)
 }
 
 static bool str_valid(char *ptr){
+  if (ptr == NULL || ptr >= PHYS_BASE || 
+      pagedir_get_page(thread_current()->pagedir, ptr) == NULL)
+    return false;
+
   char *curr_byte_ptr = ptr;
-  if (ptr == NULL) 
-    return false;
-  if (pagedir_get_page(thread_current()->pagedir, curr_byte_ptr) == NULL  ||
-      curr_byte_ptr >= PHYS_BASE)
-    return false;
   while (true) { 
     if (*curr_byte_ptr == '\0') return true;
+
     curr_byte_ptr += sizeof(char);
-    /*Check next character */
-    if ((unsigned) curr_byte_ptr % PGSIZE == 0) {
-      if (pagedir_get_page (thread_current()->pagedir, curr_byte_ptr) == NULL) 
-        return false;
-    }
-    if (curr_byte_ptr >= PHYS_BASE) return false;
-    //probably can move above inside loop
+
+    if ((unsigned) curr_byte_ptr % PGSIZE == 0 &&
+        (curr_byte_ptr >= PHYS_BASE || 
+        pagedir_get_page (thread_current()->pagedir, curr_byte_ptr) == NULL)) 
+      return false;
   }
-  return false;
+  return false;   // should never get here
 }
 
 static void *
