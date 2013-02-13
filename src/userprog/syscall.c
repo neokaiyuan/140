@@ -43,7 +43,8 @@ static void
 syscall_handler (struct intr_frame *f) 
 {
   void *esp = f->esp;
-  if (!mem_valid ((const void *) esp, sizeof(int))) {
+  if (!mem_valid ((const void *) esp, sizeof(int))) { 
+    /* Above checking size of int because esp is pointer to syscall num */
     exit(-1);
   }
 
@@ -106,16 +107,16 @@ mem_valid (const void *ptr, int size)
   if (ptr == NULL || ptr >= PHYS_BASE) 
     return false;
 
-  void *last_byte = (unsigned) ptr + size;
+  void *last_byte = (void *) ((unsigned) ptr + size);
   if (last_byte >= PHYS_BASE)
     return false;
 
-  int page_num_first_byte = ptr / PGSIZE;
-  int page_num_last_byte = last_byte / PGSIZE;
+  int page_num_first_byte = (unsigned) ptr / PGSIZE;
+  int page_num_last_byte = (unsigned) last_byte / PGSIZE;
   int pages_in_between = page_num_last_byte - page_num_first_byte;
-  void *page_of_memory = ptr; 
-
-  for (int i = 0; i < pages_in_between+1; i++) {
+  const void *page_of_memory = ptr; 
+  int i;
+  for (i = 0; i < pages_in_between+1; i++) {
     if (pagedir_get_page (thread_current()->pagedir, page_of_memory) == NULL)
       return false;
     page_of_memory += PGSIZE;
@@ -133,19 +134,20 @@ static bool str_valid(char *ptr){
     if (*curr_byte_ptr == '\0') return true;
     curr_byte_ptr += sizeof(char);
     /*Check next character */
-    if (curr_byte_ptr % PGSIZE == 0) {
+    if ((unsigned) curr_byte_ptr % PGSIZE == 0) {
       if (pagedir_get_page (thread_current()->pagedir, curr_byte_ptr) == NULL) 
         return false;
     }
-    if (curr_byte_ptr >= PHYS_BASE) return false
+    if (curr_byte_ptr >= PHYS_BASE) return false;
+    //probably can move above inside loop
   }
   return false;
 }
 
 static void *
 get_arg_n (int arg_num, void *esp) {
-  void *arg_addr = esp + sizeof(char *) * arg_num;
-  if (!mem_valid (arg_addr, sizeof(char *)));
+  const void *arg_addr = esp + sizeof(char *) * arg_num;
+  if (!mem_valid (arg_addr, sizeof(char *)))
     exit(-1);
   return arg_addr;
 }
@@ -168,7 +170,7 @@ exit (int status)
 static pid_t
 exec (const char *file)
 {
-   if (!mem_valid(file, sizeof(char *)) || !str_valid) 
+   if (!str_valid (file)) 
     return -1;
   pid_t pid = (pid_t) process_execute (file);
   if (pid == TID_ERROR) return -1;
@@ -186,7 +188,7 @@ wait (pid_t pid)
 static bool
 create (const char *file, unsigned initial_size)
 {
-  if (!addr_valid(file)) 
+  if (!str_valid(file)) 
     return false;
   lock_acquire(&filesys_lock);
   bool create = filesys_create (file, initial_size);
@@ -197,7 +199,7 @@ create (const char *file, unsigned initial_size)
 static bool
 remove (const char *file)
 {
-  if (!addr_valid(file)) 
+  if (!str_valid(file)) 
     return false;
   lock_acquire(&filesys_lock);
   bool remove = filesys_remove (file);
@@ -208,7 +210,7 @@ remove (const char *file)
 static int
 open (const char *file)
 {
-  if (!addr_valid(file)) 
+  if (!str_valid(file)) 
     return -1;
   struct thread *t = thread_current ();
   if (t->next_open_file_index == MAX_FD_INDEX+1) 
@@ -254,7 +256,7 @@ read (int fd, void *buffer, unsigned length)
       (t->file_ptrs[fd] == NULL && fd != 0))
     return -1;
 
-  if (!addr_valid(buffer) || !addr_valid(buffer + length)) 
+  if (!mem_valid(buffer, length)) 
     return -1;
 
   if (length == 0)
@@ -285,7 +287,7 @@ write (int fd, const void *buffer, unsigned length)
       (t->file_ptrs[fd] == NULL && fd != 1))
     return -1;   
   
-  if (!addr_valid(buffer) || !addr_valid(buffer + length))
+  if (mem_valid(buffer, length))
     return -1;
 
   if (length == 0) 
