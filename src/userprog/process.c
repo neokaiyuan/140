@@ -180,7 +180,12 @@ process_wait (tid_t child_tid)
     if (info->tid == child_tid) {
       if (info->child != NULL) {  // child != NULL means child still running
         t->pid_waiting_on = child_tid;
+
+        enum intr_level old_level;
+        old_level = intr_disable ();
         thread_block();
+        intr_set_level (old_level);
+
         t->pid_waiting_on = NOBODY;
       }
       int status = info->exit_status;

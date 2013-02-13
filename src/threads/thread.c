@@ -189,8 +189,8 @@ thread_create (const char *name, int priority,
     return TID_ERROR;
 
   /* Initialize thread. */
-  tid = t->tid = allocate_tid ();
   init_thread (t, name, priority);
+  tid = t->tid = allocate_tid ();
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -533,8 +533,9 @@ init_thread (struct thread *t, const char *name, int priority)
   ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
   ASSERT (name != NULL);
 
-	name_length = strcspn (name, " ");
+	name_length = strcspn (name, " \0");
   ASSERT(name_length > 0);
+  ASSERT(name_length < 16);
   memset (t, 0, sizeof *t);
 
   t->status = THREAD_BLOCKED;

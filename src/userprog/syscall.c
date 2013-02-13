@@ -172,7 +172,7 @@ static pid_t
 exec (const char *file)
 {
   if (!str_valid (file)) 
-    return -1;
+    exit(-1);
   pid_t pid = (pid_t) process_execute (file);
   if (pid == TID_ERROR) return -1;
   sema_down (&thread_current()->child_exec_sema); // look at start_process
