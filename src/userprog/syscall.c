@@ -46,7 +46,7 @@ syscall_handler (struct intr_frame *f)
     //Stop process
     //Free Assocated memory
     //Below, not thread_exit, instead call our function
-    thread_exit();
+    exit(-1);
   }
 
   int status;
@@ -118,7 +118,9 @@ addr_valid (const void *ptr)
 static void *
 get_arg_n (int arg_num, void *esp) {
   void *arg_addr = esp + sizeof(char *) * arg_num;
-  ASSERT (addr_valid(arg_addr));
+  if (!addr_valid(arg_addr))
+    exit(-1);
+  //ASSERT (addr_valid(arg_addr));
   return arg_addr;
 }
 
