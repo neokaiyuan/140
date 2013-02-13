@@ -188,6 +188,9 @@ thread_create (const char *name, int priority,
   if (t == NULL)
     return TID_ERROR;
 
+  /* set the current thread's last_created_child to the new thread */
+  thread_current()->last_created_child = &t;
+
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();

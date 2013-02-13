@@ -130,6 +130,9 @@ struct thread
        fds and indexes */
     struct file *file_ptrs[MAX_FD_INDEX + 1];
     int next_open_file_index;
+
+    struct list_elem exec_elem;
+    struct thread *last_created_child;
   };
 
 struct exit_info

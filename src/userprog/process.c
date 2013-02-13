@@ -228,6 +228,8 @@ process_exit (void)
       thread_unblock (t->parent);
   }
 
+  
+
   uint32_t *pd;
 
   /* Destroy the current process's page directory and switch back
@@ -246,7 +248,13 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
-
+  
+  struct file *exec;
+  lock_acquire(&filesys_lock);
+  if ((exec = filesys_open(t->name)) != NULL) {
+    file_close(exec);
+  }
+  lock_release(&filesys_lock);
   printf ("%s: exit(%d)\n", t->name, t->exit_status);
 }
 
@@ -358,6 +366,8 @@ load (const char *file_name, void (**eip) (void), void **esp)
   /* Open executable file. */
   lock_acquire(&filesys_lock);
   file = filesys_open (file_name);
+  if (file != NULL) 
+    file_deny_write(file); 
   lock_release(&filesys_lock);
   if (file == NULL) 
     {
@@ -462,9 +472,11 @@ load (const char *file_name, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  lock_acquire(&filesys_lock);
-  file_close (file);
-  lock_release(&filesys_lock);
+  if (!success) {
+    lock_acquire(&filesys_lock);
+    file_close (file);
+    lock_release(&filesys_lock);
+  }
   return success;
 }
 
