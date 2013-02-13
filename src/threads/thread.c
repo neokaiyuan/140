@@ -730,7 +730,7 @@ thread_wake_all_ready (int64_t currTicks)
 their priority level. */
 bool 
 thread_readylist_pri_cmp_fn (const struct list_elem *a, 
-														 const struct list_elem *b, void *aux) 
+														 const struct list_elem *b, void *aux UNUSED) 
 {
 	struct thread *thread_a = list_entry(a, struct thread, readyElem);
 	struct thread *thread_b = list_entry(b, struct thread, readyElem);
@@ -741,7 +741,7 @@ thread_readylist_pri_cmp_fn (const struct list_elem *a,
 on their priority level. */
 bool 
 thread_semawaiters_pri_cmp_fn (const struct list_elem *a, 
-															 const struct list_elem *b, void *aux) 
+															 const struct list_elem *b, void *aux UNUSED) 
 {
 	struct thread *thread_a = list_entry(a, struct thread, semaWaitElem);
 	struct thread *thread_b = list_entry(b, struct thread, semaWaitElem);

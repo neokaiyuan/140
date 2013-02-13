@@ -164,15 +164,16 @@ exit (int status)
 {
   struct thread *t = thread_current();
   t->exit_status = status;
-  printf ("%s: exit(%d)\n", t->name, status);
+  //printf ("%s: exit(%d)\n", t->name, status);
   thread_exit ();
 }
 
 static pid_t
 exec (const char *file)
 {
-  if (!str_valid (file)) 
+  if (!str_valid (file)) //|| filesys_open(file) == NULL) 
     exit(-1);
+  //file_close(file);
   pid_t pid = (pid_t) process_execute (file);
   if (pid == TID_ERROR) return -1;
   sema_down (&thread_current()->child_exec_sema); // look at start_process

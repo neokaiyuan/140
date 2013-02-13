@@ -118,10 +118,10 @@ start_process (void *aux)
   if_.eflags = FLAG_IF | FLAG_MBS;
   success = load (file_name, &if_.eip, &if_.esp);
 
+  struct thread *t = thread_current();
   if (success) {
     /*Initlize my exit info and put it in my parent's list
       of children */
-    struct thread *t = thread_current();
     if (t->parent != NULL) {
       struct exit_info *info = malloc (sizeof(struct exit_info));
       info->tid = t->tid;
@@ -147,8 +147,11 @@ start_process (void *aux)
   palloc_free_page (aux);
 
   /* If load failed, quit. */
-  if (!success) 
+  if (!success) {
+    t->exit_info_elem = NULL;
+    t->exit_status = -1;
     thread_exit ();
+  }
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -211,7 +214,7 @@ process_exit (void)
     free (child_info);
   }
 
-  if (t->parent != NULL) {
+  if (t->parent != NULL && t->exit_info_elem != NULL) {
     //struct list_elem *e = list_remove(t->exit_info_elem);
     struct list_elem *e = t->exit_info_elem;
     struct exit_info *my_info = list_entry (e, struct exit_info, elem);
@@ -243,6 +246,8 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+
+  printf ("%s: exit(%d)\n", t->name, t->exit_status);
 }
 
 /* Sets up the CPU for running user code in the current
