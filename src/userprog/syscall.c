@@ -14,7 +14,8 @@
 #include "userprog/process.h"
 
 static void syscall_handler (struct intr_frame *);
-static bool addr_valid (const void *ptr);
+static bool mem_valid (const void *ptr, int size);
+static bool str_valid (char *ptr);
 static void *get_arg_n (int arg_num, void *esp);
 static void halt (void) NO_RETURN;
 static void exit (int status) NO_RETURN;
@@ -42,10 +43,7 @@ static void
 syscall_handler (struct intr_frame *f) 
 {
   void *esp = f->esp;
-  if (!addr_valid ((const void *) esp)) {
-    //Stop process
-    //Free Assocated memory
-    //Below, not thread_exit, instead call our function
+  if (!mem_valid ((const void *) esp, sizeof(int))) {
     exit(-1);
   }
 
@@ -100,27 +98,55 @@ syscall_handler (struct intr_frame *f)
       ASSERT (false);
       break;  
   }
-
-  //printf ("system call!\n");
-  //thread_exit ();
 }
 
 static bool
-addr_valid (const void *ptr) 
+mem_valid (const void *ptr, int size) 
 {
-  if ( ptr == NULL  || ptr >= PHYS_BASE) return false;
-  // MAY WANT TO PUT THIS PROTOTYPE IN userprog/pagedir.h
-  if (pagedir_get_page (thread_current()->pagedir, ptr) == NULL) 
+  if (ptr == NULL || ptr >= PHYS_BASE) 
     return false;
+
+  void *last_byte = (unsigned) ptr + size;
+  if (last_byte >= PHYS_BASE)
+    return false;
+
+  int page_num_first_byte = ptr / PGSIZE;
+  int page_num_last_byte = last_byte / PGSIZE;
+  int pages_in_between = page_num_last_byte - page_num_first_byte;
+  void *page_of_memory = ptr; 
+
+  for (int i = 0; i < pages_in_between+1; i++) {
+    if (pagedir_get_page (thread_current()->pagedir, page_of_memory) == NULL)
+      return false;
+    page_of_memory += PGSIZE;
+  }
+
   return true;
+}
+
+static bool str_valid(char *ptr){
+  char *curr_byte_ptr = ptr;
+  if (pagedir_get_page(thread_current()->pagedir, curr_byte_ptr) == NULL  ||
+      curr_byte_ptr >= PHYS_BASE)
+    return false;
+  while (true) { 
+    if (*curr_byte_ptr == '\0') return true;
+    curr_byte_ptr += sizeof(char);
+    /*Check next character */
+    if (curr_byte_ptr % PGSIZE == 0) {
+      if (pagedir_get_page (thread_current()->pagedir, curr_byte_ptr) == NULL) 
+        return false;
+    }
+    if (curr_byte_ptr >= PHYS_BASE) return false
+  }
+  return false;
 }
 
 static void *
 get_arg_n (int arg_num, void *esp) {
   void *arg_addr = esp + sizeof(char *) * arg_num;
-  if (!addr_valid(arg_addr))
+  if (!mem_valid (arg_addr, sizeof(char *)));
     exit(-1);
-  //ASSERT (addr_valid(arg_addr));
   return arg_addr;
 }
 
@@ -135,14 +161,14 @@ exit (int status)
 {
   struct thread *t = thread_current();
   t->exit_status = status;
-  printf("%s: exit(%d)\n", t->name, status);
+  printf ("%s: exit(%d)\n", t->name, status);
   thread_exit ();
 }
 
 static pid_t
 exec (const char *file)
 {
-  if (!addr_valid(file)) 
+   if (!mem_valid(file, sizeof(char *)) || !str_valid) 
     return -1;
   pid_t pid = (pid_t) process_execute (file);
   if (pid == TID_ERROR) return -1;
