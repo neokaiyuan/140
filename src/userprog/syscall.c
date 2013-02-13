@@ -107,7 +107,7 @@ mem_valid (const void *ptr, int size)
   if (ptr == NULL || ptr >= PHYS_BASE) 
     return false;
 
-  void *last_byte = (void *) ((unsigned) ptr + size);
+  void *last_byte = (void *) ((unsigned) ptr + size)-1;
   if (last_byte >= PHYS_BASE)
     return false;
 
@@ -127,6 +127,8 @@ mem_valid (const void *ptr, int size)
 
 static bool str_valid(char *ptr){
   char *curr_byte_ptr = ptr;
+  if (ptr == NULL) 
+    return false;
   if (pagedir_get_page(thread_current()->pagedir, curr_byte_ptr) == NULL  ||
       curr_byte_ptr >= PHYS_BASE)
     return false;
@@ -287,7 +289,7 @@ write (int fd, const void *buffer, unsigned length)
       (t->file_ptrs[fd] == NULL && fd != 1))
     return -1;   
   
-  if (mem_valid(buffer, length))
+  if (!mem_valid(buffer, length))
     return -1;
 
   if (length == 0) 
