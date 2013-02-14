@@ -39,11 +39,15 @@ Everything was tri-coded.
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+
+
 ---- ALGORITHMS ----
 
 >> A2: Briefly describe how you implemented argument parsing.  How do
 >> you arrange for the elements of argv[] to be in the right order?
 >> How do you avoid overflowing the stack page?
+
+
 
 ---- RATIONALE ----
 
@@ -61,8 +65,7 @@ Everything was tri-coded.
      Advantage 1.
      The Unix approach offers an extra layer of abstraction to argument passing. 
      Before the command even reaches the kernel, the shell can parse and check for errors.
-     This protects the kernel from unsafe arguments passed in. The extra layer offered by
-     the unix approach ensures that the kernel deals with safe arguments. 
+     This protects the kernel from unsafe arguments passed in. 
   
      Advantage 2. 
      The Unix-like systems simplfies the work the kernel has to do and reduces the complexity
@@ -80,6 +83,52 @@ Everything was tri-coded.
 >> B1: Copy here the declaration of each new or changed `struct' or
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
+
+STRUCTURES:
+struct thread
+{
+      .
+      .
+      .
+  struct thread *parent;
+  struct list children_exit_info;
+  struct list_elem *exit_info_elem;
+  struct semaphore child_exec_sema;
+  struct semaphore child_wait_sema;
+  bool child_exec_success;
+  int pid_waiting_on;
+  int exit_status;
+  
+  struct file *file_ptrs[MAX_FD_INDEX + 1];
+  struct file *my_exec;
+  int next_open_file_index; 
+};
+
+struct exit_info
+{
+  tid_t tid;
+  int exit_status;
+  struct thread *child;
+  struct list_elem elm;
+};
+
+#DEFINES
+
+(in thread.h)
+#define NODOBY -1
+This was used in wait
+
+
+#define MAX_FD_INDEX 129
+
+(in syscall.c)
+#define MAX_WRITE_SIZE 500
+
+
+
+GLOBAL/STATIC VARIABLES
+
+
 
 >> B2: Describe how file descriptors are associated with open files.
 >> Are file descriptors unique within the entire OS or just within a
