@@ -85,59 +85,181 @@ Everything was tri-coded.
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
 STRUCTURES:
+
 struct thread
 {
       .
       .
       .
   struct thread *parent;
+  This is used primarily in process_exit to access the current thread's
+  exit_info struct in its parent's children_exit_info list, and set the
+  exit status and NULL out the child pointer in that struct.
+
   struct list children_exit_info;
+  This stores any children owned by the current thread. As soon as a
+  process is created in init_thread, we initialize the list
+  children_exit_info, so that we can store any exit information on any
+  children spawned by this thread in the future.
+
   struct list_elem *exit_info_elem;
+  This is the element that is used as a handle into the current thread's
+  exit_info struct in its parent's list. We use this exit_info_elem to
+  quickly obtain the exit_info struct from the parent's list and
+  update it when the current thread exits.
+
   struct semaphore child_exec_sema;
+  This semaphore is used in the exec system call to ensure that the
+  parent thread does not return until the child has been successfully
+  initialized. The parent sema_downs in the exec system call, and
+  the child sema_ups after it has been successfully initialized in
+  start_process.  
+
   struct semaphore child_wait_sema;
+  This semaphore is used in the wait system call (through process_wait) 
+  to ensure that the parent thread waits until the child has successfully 
+  executed. It is only used if the child is currently running and if 
+  the parent has not previously called wait on this particular child. 
+  Else, we will simply return -1.
+
   bool child_exec_success;
+  This boolean is used to tell the parent if its child has been
+  executed successfully. Regardless, the child will sema_up the parent's
+  child_exec_sema semaphore, and the boolean will help determine whether
+  the parent returns pid (on success) or -1 (on failure) from the syscall.
+
   int pid_waiting_on;
+  This is used in the wait system call through process wait and keeps track
+  of the tid of the child the current thread is waiting on. This variable
+  is only set to child_tid if the thread with that tid is indeed a child
+  of the current thread and it has not been waited on by this thread before.
+
   int exit_status;
-  
+  This keeps track of the exit status of the current thread, and is used
+  when the system call exit returns the exit status to the kernel, and also
+  elsewhere when threads return their exit statuses to their parents. It
+  is particularly useful for process_exit to determine the reason for
+  the exiting of a thread.  
+
   struct file *file_ptrs[MAX_FD_INDEX + 1];
+  This stores the file structs representing the open files currently in use
+  by a thread. The indexes in this array have a one-to-one mapping with file
+  descriptors. The maximum number of open files a thread can have is set to
+  128, but since fds 0 and 1 are reserved for stdin and stdout, our
+  MAX_FD_INDEX is 129.
+
   struct file *my_exec;
+  This is used primarily to keep track of whether a thread is currently running
+  an executable (aka loaded an executable in load), and if so to close that
+  executable file in load and process_exit. It is important to keep track of
+  this variable, otherwise we will not be able to ensure integrity of the
+  read and write privileges of our executables.
+
   int next_open_file_index; 
+  This refers to the index of the next open slot in our file_ptrs array.
+  This is updated after every time we open/close a file, so that whenever we
+  open/close a file next we can find the next open slot in constant time. 
 };
 
 struct exit_info
 {
   tid_t tid;
-  int exit_status;
-  struct thread *child;
-  struct list_elem elm;
-};
+  This is used to identify the exit_info struct as belonging to a particular
+  child. It is mainly used in the process_wait function when we iterate through
+  the children_exit_info list to catch the exit_info struct belonging to a
+  particular tid.
 
-#DEFINES
+  int exit_status;
+  This is the meat of the struct. It is used to inform the parent of its child's
+  exit status.
+
+  struct thread *child;
+  This is used in case the parent dies beefore the child, to set the child's
+  parent pointer to NULL, so that the child does not try to set its exit status
+  in its parent when it dies. If the child dies before the parent, the child
+  will set this pointer to NULL.
+
+  struct list_elem elem;
+  This elem is stored in the child's struct as a handle to this exit_info struct.
+  This allows us to lookup the struct quickly when we have access to the child
+  thread.
+};
+The exit_info struct is used to tell a parent thread the exit statuses of its
+children, even after they have exited. This information must be stored in the
+parent thread, because the children's data is all destroyed after they die.
+
+#DEFINES:
 
 (in thread.h)
 #define NODOBY -1
-This was used in wait
-
+This was used as a constant in the system call wait. When a parent is not
+waiting on any child, it's variable pid_waiting_on is set to NOBODY. Namely,
+when all threads are created, their pid_waiting_on is initialized to NOBODY,
+and after a child they have been waiting on has exited, we set their
+pid_waiting_on to NOBODY.
 
 #define MAX_FD_INDEX 129
+This is used to impose a limit on the number of files we can open simultaneously
+in a thread. The limit is 128, however we reserve fd numbers 0 and 1 for stdin
+and stdout, therefore our array of open files extends to index 129, even though
+it only stores 128 files at max. We impose a one-to-one mapping between fds
+and indexes in our array of open files.
 
 (in syscall.c)
 #define MAX_WRITE_SIZE 500
+This constant defines how many bytes we can write into a file in one call
+to file_write. This is an arbitrary limit set to a "few hundred bytes",
+just so we don't overflow the buffer.  
 
+GLOBAL/STATIC VARIABLES:
 
-
-GLOBAL/STATIC VARIABLES
-
+(in filesys.h)
+struct lock filesys_lock;
+This global variable lock is used by all system calls and process methods 
+when trying to perform any file system functions. This is important
+because our file system currently does not support concurrency.
 
 
 >> B2: Describe how file descriptors are associated with open files.
 >> Are file descriptors unique within the entire OS or just within a
 >> single process?
 
+We use an array called file_ptrs to store open files, indexed by their file 
+descriptor. To decide which file descriptor/index to use for a new open file,
+we keep track of the next open array index with a variable called
+next_open_file_index stored in the thread struct. This variable
+is updated every time we assign a file descriptor/index to a specific
+open file, and also when we close any open files.
+
+File descriptors are not unique within the entire OS; they are only
+unique within a single process. This is because different processes
+can have different files open, and thus different mappings between
+file descriptors and open files.
+
 ---- ALGORITHMS ----
 
 >> B3: Describe your code for reading and writing user data from the
 >> kernel.
+
+Reading: We first check to make sure that the file descriptor is valid,
+namely that it is not stdout, nor referencing an out of bounds fd, nor
+referencing an index in our array that does not store an open file. We 
+then check that the entire memory of the buffer sits in valid memory.
+If the length specified to read is 0, we simply return 0.
+If the file descriptor references stdin, then we will get the input from
+stdin character by character and copy it into the buffer.
+Otherwise, we acquire the file system lock,  call file_read to read 
+into the buffer with the specified length.
+always exit on error or return the number of bytes read on success.
+
+Writing: We still check to make sure that the file descriptor is valid
+(not stdin, not referencing an out of bounds fd, not referencing an index
+in our array that does not store an open file struct pointer). We then 
+check that the entire memory of the buffer passed in is in valid memory. 
+If the file descriptor references stdout, we write to the buffer by calling 
+putbuf as defined in lib/kernel/console.c and return the length specified
+by the client. Otherwise, we call file_write and return the length returned 
+by file_write.
 
 >> B4: Suppose a system call causes a full page (4,096 bytes) of data
 >> to be copied from user space into the kernel.  What is the least
@@ -146,8 +268,46 @@ GLOBAL/STATIC VARIABLES
 >> for a system call that only copies 2 bytes of data?  Is there room
 >> for improvement in these numbers, and how much?
 
+The least number of inspections is 1. This is if the entire page of data
+is stored in a single page. We always check the page of the initial address
+of the data being read in.
+
+The greatest possible number of inspections of the page table could be
+two, if the page was split across two pages. We check this by modding
+every new byte read in by PGSIZE, and if addr % PGSIZE == 0, we know
+we have encountered a new page of memory and will check it's validity.
+
+For a system call that only copies 2 bytes of data, we could also end up
+inspect the page table twice, if the 2 bytes were split across 2 separate
+pages. Again, we check this by modding (%) the addresses by PGSIZE.
+
+There is no room for improvement in these numbers, because for every
+byte of data read in, if that bytes belongs to a new page
+(addr % PGSIZE == 0), we need to check if that page is in valid memory.
+
 >> B5: Briefly describe your implementation of the "wait" system call
 >> and how it interacts with process termination.
+
+Our wait system call relies entirely on process_wait. In process_wait,
+we first search the current thread's children_exit_info list for 
+the exit_info struct of the tid it wishes to wait for. If there is
+a match between this tid and a tid of one of its children, AND that
+child has not already died, we will set the pid_waiting_on variable
+of the current thread to the child tid, and then sema_down on the
+child_wait_sema semaphore in the current thread, which should be 
+sema_up'ed by the child just before it exits. Upon successful exit of the
+child, the pid_waiting_on variable will be reset to NOBODY. We will
+then proceed to remove the child's exit_info struct from the
+children_exit_info list, free that struct, and return the child's
+exit status. 
+
+If wait has been called previously by this same parent on the same child,
+we will already have removed the child's exit_info struct from the
+parent's children_exit_info list, and thus there will not be a match,
+and the process_wait function will return -1.
+
+In general, if the tid give to process_wait is not a tid of one of the
+current thread's children, the function will simply return -1.
 
 >> B6: Any access to user program memory at a user-specified address
 >> can fail due to a bad pointer value.  Such accesses must cause the
@@ -163,6 +323,35 @@ GLOBAL/STATIC VARIABLES
 >> paragraphs, describe the strategy or strategies you adopted for
 >> managing these issues.  Give an example.
 
+To avoid obscuring the primary function of the system call code in
+a morass of error-handling, we created two static helper functions called
+mem_valid and str_valid to check if a block of memory sits in valid memory
+and if a string's pointer and the dereferenced char values sit in valid
+memory respectively. The system calls all use one or both of these
+functions to determine if any of their input arguments sit in invalid
+memory. If either finds an invalid memory address, the system calls
+typically call exit(-1).
+
+To ensure that all temporarily allocated resources are freed, in our
+system call exit (which calls thread_exit which calls process_exit),
+we set the current thread's exit status to the status parameter, then
+allow process_exit to free all the memory pointed to in the thread struct.
+In particular, we remove all elements of the thread's children_exit_info
+list and free every single one (after setting those children's parent
+pointers to NULL). If the current thread is also running an executable,
+we will close that file. For all the open files that the current
+thread has opened, namely all the file struct pointers in the file_ptrs
+array, we will free those struct file *'s if they are not NULL. Lastly,
+we free the current thread's page directory, which ensures that none
+of the memory contained in the current thread struct is accessible anymore.
+
+For example, if we had a thread with many files open and many children, and also
+running an executable, all of these resources would be freed in the process
+of exiting a thread. The thread would first free these resources and coordinate
+with its exit_info struct in its parent, then print out the saved exit status, 
+then coordinate with its possibly waiting parent that it is exiting, then
+free its own page directory and memory.
+
 ---- SYNCHRONIZATION ----
 
 >> B7: The "exec" system call returns -1 if loading the new executable
@@ -170,12 +359,84 @@ GLOBAL/STATIC VARIABLES
 >> loading.  How does your code ensure this?  How is the load
 >> success/failure status passed back to the thread that calls "exec"?
 
+We use a semaphore to guarantee that the parent thread does not return
+before the child knows if it has loaded the executable successfully.
+In the system call exec, after checking if the file name passed in is
+in valid memory, we call process execute before sema_down'ing on the
+current thread's child_exec_sema. The sema_down function call should
+only return after the child has called sema_up on its parent's 
+child_exec_sema semaphore. We have coordinated this such that in the
+child's start_process function (invoked after the child has started
+running), once we know the result of the call to load, we will call
+sema_up on the parent's child_exec_sema semaphore.
+
+The load success/failure status is passed back to the thread that calls
+exec through a variable called child_exec_success in the thread struct.
+This variable is updated just prior to the call to sema_up by the
+child_thread, and checked by the parent just after returning from
+sema_down. If the boolean variable is set to false, the parent will
+detect it after returning from sema_down and return -1 accordingly.
+
 >> B8: Consider parent process P with child process C.  How do you
 >> ensure proper synchronization and avoid race conditions when P
 >> calls wait(C) before C exits?  After C exits?  How do you ensure
 >> that all resources are freed in each case?  How about when P
 >> terminates without waiting, before C exits?  After C exits?  Are
 >> there any special cases?
+
+When P calls wait before C exits, P will not start again until C exits.
+Our mechanism is twofold. P will iterate through its list of struct 
+exit_info, corresponding to its children. If C has not exited, P will 
+discover it by finding C's exit_info struct and seeing that its child
+pointer is not null. Thus it will store that child's tid as the tid
+it is waiting on (in pid_waiting_on) and then sema_down on its 
+child_wait_sema semaphore. As soon as C exits, it will see that its
+parent's pid_waiting_on variable is the same as its own tid, and
+subsequently sema_up on its parent's child_wait_sema semaphore.
+
+Thus the parent is runnable again after a call to wait.
+
+To mitigate race conditions, namely the possibility that AFTER the
+parent checks that the exit_info struct of its child contains a non-NULL
+child pointer (which means that the child is still running), and BEFORE
+the parent sets its pid_waiting on to the child_tid, the child exits,
+we have implemented a lock wait_lock that the parent will acquire in 
+process_wait before it checks if the child pointer of the child's exit_info
+struct is non-NULL, and release after it has set its pid_waiting_on variable.
+The child will acquire this same lock in process_exit before it checks its
+parent's pid_waiting_on, and release the lock after that if-statement
+containing the sema_up instruction.
+
+This wait_lock will prevent the race condition where the parent sees
+that its child is still running, but before it can set its pid_waiting_on
+variable the child has exited without calling sema_up, thus causing the parent
+to stay in sema_down forever.
+
+If P calls wait on C after C has exited, C's exit status will be stored in C's
+exit_info struct in P's children_exit_info list. Thus, upon
+iterating through P's list of children_exit_info, P will 
+discover C has already exited. It can then quickly access C's
+exit status and return this value.
+
+We ensure that the resources used for the synchronization are freed when each
+thread calls process_exit. This exit function frees all exit_info structs in
+the thread's children_exit_info list. It also closes the current thread's
+executable file and all files opened by the current thread, and also the
+current thread's memory and page directory. 
+
+If P terminates without waiting, before C exits, P will make sure that C's parent
+pointer (contained in C's thread struct) is redirected to NULL. This is also
+taken care of in process_exit. Before updating its exit_info struct,
+C will also check if its parent pointer is NULL, and if it is NULL, not update
+its exit_info or dereference the parent pointer in any way, nor sema_up.
+
+When P terminates without waiting after C exits, P will have access to C's 
+exit status through the exit_info struct referencing C in P's children_exit_info
+list.
+
+There are special cases, but we have taken care of them through setting C's
+parent pointer to NULL when P exits and setting C's child pointer (in the exit_info
+struct in P's children_exit_info list) to NULL when C exits.
 
 ---- RATIONALE ----
 
