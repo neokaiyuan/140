@@ -180,12 +180,16 @@ process_wait (tid_t child_tid)
        e != list_end (&t->children_exit_info); e = list_next (e)) {
     struct exit_info *info = list_entry (e, struct exit_info, elem);
     if (info->tid == child_tid) {
+      lock_acquire(&t->wait_lock);
       if (info->child != NULL) {  // child != NULL means child still running
         t->pid_waiting_on = child_tid;
+        lock_release(&t->wait_lock);
         sema_down (&t->child_wait_sema);
         t->pid_waiting_on = NOBODY;
+      } else {
+        lock_release(&t->wait_lock);
       }
-
+      
       int status = info->exit_status;
       list_remove (&info->elem);
       free (info);
@@ -237,8 +241,12 @@ process_exit (void)
   printf ("%s: exit(%d)\n", t->name, t->exit_status);
 
   // If parent is waiting on this thread to finish, unblock the parent
-  if (t->parent != NULL && t->parent->pid_waiting_on == t->tid)
-    sema_up (&t->parent->child_wait_sema);
+  if (t->parent != NULL) {
+    lock_acquire(&t->parent->wait_lock);
+    if (t->parent->pid_waiting_on == t->tid)
+      sema_up (&t->parent->child_wait_sema);
+    lock_release(&t->parent->wait_lock);
+  }
 
   uint32_t *pd;
 

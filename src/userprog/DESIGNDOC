@@ -173,7 +173,6 @@ Below is a reasonably indepth trace of argument passing starting from process
      reject in user mode. Thus, much time is saved, including the time to trap into
      the kernel and then transistion back. 
        
-   
 
 			     SYSTEM CALLS
 			     ============
@@ -543,15 +542,15 @@ struct in P's children_exit_info list) to NULL when C exits.
 >> B9: Why did you choose to implement access to user memory from the
 >> kernel in the way that you did?
 
-   We access user memory only during argument passing or system calls. In each
+    We access user memory only during argument passing or system calls. In each
     situation we do so by heavily checking the pointer to each location in user
     memory. We check it is in the valid user address range, that it is not a
     null pointer, and then that the memory it points to is mapped.
 
-    We accesed user in this way since we did not want an invalid address to be
-    accesed in the kernal mode. This would cause an exception which would cause
-    the OS to quite. A user process should never be able to break the OS no
-    matter what invalid operations it attempts to do.
+    We accesed user memory in this way since we did not want an invalid address to be
+    accesed in the kernel mode. This would cause an exception which would cause
+    the OS to quit. A user process should never be able to break the OS no
+    matter what invalid memory it attempts to dereference or use.
 
 >> B10: What advantages or disadvantages can you see to your design
 >> for file descriptors?
@@ -575,8 +574,14 @@ struct in P's children_exit_info list) to NULL when C exits.
     Another disadvantadge is non-dynamic memory. Threads can open 128 files. If the
     thread has already opened 128 files, and wants to open another, it cannot.
 
+    Another disadvantage is that we allocate size 130 for our file_ptrs array 
+    even if we do not open that many files. This could be wasted space.
+
 >> B11: The default tid_t to pid_t mapping is the identity mapping.
 >> If you changed it, what advantages are there to your approach?
+
+We did not change the default mapping from tid_t to pid_t. We left it as a one-to-one
+mapping, namely that we do not distinguish between tid_t and pid_t.
 
 			   SURVEY QUESTIONS
 			   ================

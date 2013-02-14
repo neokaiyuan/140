@@ -133,6 +133,8 @@ struct thread
     struct file *file_ptrs[MAX_FD_INDEX + 1];
     struct file *my_exec;
     int next_open_file_index;
+
+    struct lock wait_lock;               /* used to prevent race conditions in syscall wait */
   };
 
 struct exit_info
