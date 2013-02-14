@@ -49,9 +49,28 @@ Everything was tri-coded.
 
 >> A3: Why does Pintos implement strtok_r() but not strtok()?
 
+     The main difference between strtok_r() and strtok() is that strtok_r()
+     is thread safe and works in multi threaded environments. strtok() saves
+     its state in between tokens with a pointer and is vulnerable in a multi threaded
+     environment in pintos. 
+
 >> A4: In Pintos, the kernel separates commands into a executable name
 >> and arguments.  In Unix-like systems, the shell does this
 >> separation.  Identify at least two advantages of the Unix approach.
+    
+     Advantage 1.
+     The Unix approach offers an extra layer of abstraction to argument passing. 
+     Before the command even reaches the kernel, the shell can parse and check for errors.
+     This protects the kernel from unsafe arguments passed in. The extra layer offered by
+     the unix approach ensures that the kernel deals with safe arguments. 
+  
+     Advantage 2. 
+     The Unix-like systems simplfies the work the kernel has to do and reduces the complexity
+     of the kernel code. In pintos a lot of work is done inside the kernel to check for 
+     correct parsing and correct formatting. If all this work is done in the shell then
+     the kernel only has to worry about setting up the stack.  
+       
+   
 
 			     SYSTEM CALLS
 			     ============
