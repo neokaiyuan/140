@@ -122,10 +122,12 @@ struct thread
     struct list children_exit_info;
     struct list_elem *exit_info_elem;    /* elem stored in parent's list */
     struct semaphore child_exec_sema;
+    struct semaphore child_wait_sema;
     bool child_exec_success;
     int pid_waiting_on;
     int exit_status;
 
+    struct file *my_exec;
     /* entries begin at index 2 to ensure one-to-one mapping between
        fds and indexes */
     struct file *file_ptrs[MAX_FD_INDEX + 1];

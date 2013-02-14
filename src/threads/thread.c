@@ -568,7 +568,10 @@ init_thread (struct thread *t, const char *name, int priority)
   }
   list_init (&t->children_exit_info);
   sema_init (&t->child_exec_sema, 0);
+  sema_init (&t->child_wait_sema, 0);
   t->pid_waiting_on = NOBODY;
+
+  t->my_exec = NULL;
 
   t->magic = THREAD_MAGIC;
 

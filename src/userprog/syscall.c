@@ -31,7 +31,7 @@ static void seek (int fd, unsigned position);
 static unsigned tell (int fd);
 static void close (int fd);
 
-#define MAX_WRITE_SIZE 300
+#define MAX_WRITE_SIZE 500
 
 void
 syscall_init (void) 

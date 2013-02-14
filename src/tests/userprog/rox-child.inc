@@ -22,7 +22,7 @@ test_main (void)
 
   /* Execute child-rox and wait for it. */
   CHECK ((child = exec (child_cmd)) != -1, "exec \"%s\"", child_cmd);
-  quiet = false;
+  quiet = true;
   CHECK (wait (child) == 12, "wait for child");
   quiet = false;
 
