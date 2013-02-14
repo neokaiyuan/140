@@ -527,19 +527,16 @@ static void
 init_thread (struct thread *t, const char *name, int priority)
 {
   enum intr_level old_level;
-	int name_length;
 
   ASSERT (t != NULL);
   ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
   ASSERT (name != NULL);
 
-	name_length = strcspn (name, " \0");
-  ASSERT(name_length > 0);
-  ASSERT(name_length < 16);
+	int name_length = strcspn (name, " \0");
+  ASSERT (name_length < 16);  // stored name cannot be over 15 bytes long
   memset (t, 0, sizeof *t);
 
   t->status = THREAD_BLOCKED;
-//  strlcpy (t->name, name, sizeof t->name);
   strlcpy (t->name, name, name_length+1);
   t->stack = (uint8_t *) t + PGSIZE;
 	
@@ -560,17 +557,16 @@ init_thread (struct thread *t, const char *name, int priority)
   	t->basePriority = priority;
 	}
 
-  // ADDED FOR PROJECT 2
-  if (t != initial_thread) {
+  /* the following for project 2 */
+  if (t != initial_thread)
     t->parent = thread_current ();
-  } else {
+  else
     t->parent = NULL;
-  }
+
   list_init (&t->children_exit_info);
   sema_init (&t->child_exec_sema, 0);
   sema_init (&t->child_wait_sema, 0);
   t->pid_waiting_on = NOBODY;
-
   t->my_exec = NULL;
 
   t->magic = THREAD_MAGIC;

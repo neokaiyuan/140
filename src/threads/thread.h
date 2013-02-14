@@ -118,6 +118,7 @@ struct thread
 		int niceness;												/* Factor used to determine priority */
 		int recentCPU;											/* Recent CPU usage stored as FP*/
 
+    /* the following for project 2 */
     struct thread *parent;
     struct list children_exit_info;
     struct list_elem *exit_info_elem;    /* elem stored in parent's list */
@@ -127,10 +128,10 @@ struct thread
     int pid_waiting_on;
     int exit_status;
 
-    struct file *my_exec;
     /* entries begin at index 2 to ensure one-to-one mapping between
        fds and indexes */
     struct file *file_ptrs[MAX_FD_INDEX + 1];
+    struct file *my_exec;
     int next_open_file_index;
   };
 
