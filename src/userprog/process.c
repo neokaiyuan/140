@@ -182,16 +182,7 @@ process_wait (tid_t child_tid)
     if (info->tid == child_tid) {
       if (info->child != NULL) {  // child != NULL means child still running
         t->pid_waiting_on = child_tid;
-
         sema_down (&t->child_wait_sema);
-
-        /*
-        enum intr_level old_level;
-        old_level = intr_disable ();
-        thread_block();
-        intr_set_level (old_level);
-        */
-  
         t->pid_waiting_on = NOBODY;
       }
 
@@ -212,49 +203,43 @@ process_exit (void)
   while (!list_empty (&t->children_exit_info)) {
     struct list_elem *elem = list_pop_front (&t->children_exit_info);
     struct exit_info *child_info = list_entry (elem, struct exit_info, elem);
-    if (child_info->child != NULL) {
+    if (child_info->child != NULL)
       child_info->child->parent = NULL;
-    }
     free (child_info);
   }
 
   if (t->parent != NULL && t->exit_info_elem != NULL) {
-    //struct list_elem *e = list_remove(t->exit_info_elem);
-    struct list_elem *e = t->exit_info_elem;
-    struct exit_info *my_info = list_entry (e, struct exit_info, elem);
+    struct exit_info *my_info = list_entry (t->exit_info_elem, struct exit_info, elem);
     my_info->exit_status = t->exit_status;
     my_info->child = NULL;
-    //list_push_front (&t->parent->children_exit_info, t->exit_info_elem);
   }
  
-  lock_acquire(&filesys_lock);
-  if (t->my_exec != NULL)   // checks if executable
+  if (t->my_exec != NULL) {  // checks if executable
+    lock_acquire(&filesys_lock);
     file_close(t->my_exec);
-  lock_release(&filesys_lock);
+    lock_release(&filesys_lock);
+  }
 
   /*Make sure all files opened were closed, starts at i = 2
     since 0 and 1 are reserved for stdin and stdout in the 
     file ptr array */
-  struct file *file_checking;
+  struct file *curr_file;
   int i;
   for (i = 2; i <= MAX_FD_INDEX; i++) {
-    file_checking = t->file_ptrs[i];
-    if (file_checking != NULL) {
+    curr_file = t->file_ptrs[i];
+    if (curr_file != NULL) {
       lock_acquire(&filesys_lock);
-      file_close(file_checking);
+      file_close(curr_file);
       lock_release(&filesys_lock);
     }
   }
 
   printf ("%s: exit(%d)\n", t->name, t->exit_status);
 
-  //If parent is waiting on this thread to finish, unblock the parent
-  if (t->parent != NULL && t->parent->pid_waiting_on == t->tid) {
-      //thread_unblock (t->parent);
+  // If parent is waiting on this thread to finish, unblock the parent
+  if (t->parent != NULL && t->parent->pid_waiting_on == t->tid)
     sema_up (&t->parent->child_wait_sema);
-  }
 
-  
   uint32_t *pd;
 
   /* Destroy the current process's page directory and switch back
@@ -383,13 +368,8 @@ load (const char *file_name, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  //lock_acquire(&filesys_lock);
   file = filesys_open (file_name);
-  //if (file != NULL) {
-  //  file_deny_write(file);
-  
-   
-  //lock_release(&filesys_lock);
+
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
@@ -418,20 +398,14 @@ load (const char *file_name, void (**eip) (void), void **esp)
     {
       struct Elf32_Phdr phdr;
 
-    //  lock_acquire(&filesys_lock);
       int length = file_length (file);
-      //lock_release(&filesys_lock);
 
       if (file_ofs < 0 || file_ofs > length)
         goto done;
 
-     // lock_acquire(&filesys_lock);
       file_seek (file, file_ofs);
-      //lock_release(&filesys_lock);
 
-      //lock_acquire(&filesys_lock);
       int num_bytes = file_read (file, &phdr, sizeof phdr);
-      //lock_release(&filesys_lock);
 
       if (num_bytes != sizeof phdr)
         goto done;
@@ -497,9 +471,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
     file_deny_write(file);
     t->my_exec = file;
   } else {
-    //lock_acquire(&filesys_lock);
     file_close (file);
-    //lock_release(&filesys_lock);
   }
 
   lock_release(&filesys_lock);
@@ -520,9 +492,7 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
     return false; 
 
   /* p_offset must point within FILE. */
-  //lock_acquire (&filesys_lock);
   int length =  file_length (file);
-  //lock_release (&filesys_lock);
   if (phdr->p_offset > (Elf32_Off) length ) 
     return false;
 
@@ -580,9 +550,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
   
-  //lock_acquire(&filesys_lock);
   file_seek (file, ofs);
-  //lock_release(&filesys_lock);
   while (read_bytes > 0 || zero_bytes > 0) 
     {
       /* Calculate how to fill this page.
@@ -597,9 +565,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
         return false;
 
       /* Load this page. */
-      //lock_acquire(&filesys_lock);
       int num_bytes = file_read (file, kpage, page_read_bytes);
-      //lock_release(&filesys_lock);
       if (num_bytes != (int) page_read_bytes)
         {
           palloc_free_page (kpage);

@@ -44,7 +44,6 @@ syscall_handler (struct intr_frame *f)
 {
   void *esp = f->esp;
   if (!mem_valid ((const void *) esp, sizeof(int))) { 
-    /* Above checking size of int because esp is pointer to syscall num */
     exit(-1);
   }
 
@@ -126,7 +125,7 @@ mem_valid (const void *ptr, int size)
   return true;
 }
 
-static bool str_valid(const char *ptr){
+static bool str_valid (const char *ptr) {
   if (ptr == (char *) NULL || ptr >= (char *) PHYS_BASE || 
       pagedir_get_page(thread_current()->pagedir, ptr) == NULL)
     return false;
@@ -192,6 +191,7 @@ create (const char *file, unsigned initial_size)
 {
   if (!str_valid(file)) 
     exit(-1);
+
   lock_acquire(&filesys_lock);
   bool create = filesys_create (file, initial_size);
   lock_release(&filesys_lock);
@@ -203,6 +203,7 @@ remove (const char *file)
 {
   if (!str_valid(file)) 
     return false;
+
   lock_acquire(&filesys_lock);
   bool remove = filesys_remove (file);
   lock_release(&filesys_lock);
@@ -214,6 +215,7 @@ open (const char *file)
 {
   if (!str_valid(file)) 
     exit(-1);
+
   struct thread *t = thread_current ();
   if (t->next_open_file_index == MAX_FD_INDEX+1) 
     return -1;
@@ -247,6 +249,7 @@ filesize (int fd)
   lock_acquire(&filesys_lock);
   int length = file_length (thread_current ()->file_ptrs[fd]);
   lock_release(&filesys_lock);
+
   return length;
 }
 
@@ -278,6 +281,7 @@ read (int fd, void *buffer, unsigned length)
   lock_acquire(&filesys_lock);
   int read_len = file_read (t->file_ptrs[fd], buffer, length);
   lock_release(&filesys_lock);
+
   return read_len;
 }
 
@@ -307,12 +311,14 @@ write (int fd, const void *buffer, unsigned length)
       }
       num_writes--;
     }
+
     return length;
   } 
   
   lock_acquire(&filesys_lock);
   int write_len = file_write (t->file_ptrs[fd], buffer, length);
   lock_release(&filesys_lock);
+
   return write_len;
 }
 
@@ -338,6 +344,7 @@ tell (int fd)
   lock_acquire(&filesys_lock);
   int position = file_tell(t->file_ptrs[fd]);
   lock_release(&filesys_lock);
+
   return position;
 }
 
