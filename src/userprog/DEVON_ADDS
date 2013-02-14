@@ -1,0 +1,195 @@
+ARGUMENT PASSING
+                           ================
+
+---- DATA STRUCTURES ----
+
+>> A1: Copy here the declaration of each new or changed `struct' or
+>> `struct' member, global or static variable, `typedef', or
+>> enumeration.  Identify the purpose of each in 25 words or less.
+
+  No structs, #DEFINE, or globals were used for argument passing (from
+  the PINTOS command line). Structs / mechanisms used for passing 
+  arguments in system calls are explained in the next section.
+
+---- ALGORITHMS ----
+
+>> A2: Briefly describe how you implemented argument parsing.  How do
+>> you arrange for the elements of argv[] to be in the right order?
+>> How do you avoid overflowing the stack page?
+    
+    Below is a reasonably indepth trace of argument passing starting from process
+    exec. For a briefer version, drop down to (start process) or just search
+    BRIEF.  
+    Argument passing begins when the arguments + function to execute (file_name)
+    is passed to process_execute.
+ 
+    (Process_execute) 
+    The whole string of arguments & function to execute (file_name) is palloced
+    and then passed to thread-create in the call 'thread_create', along with a 
+    pointer to the origional string passed in to process_execute (un palloced
+    version) 
+
+    (thread_create)
+    Here the whole string (what this means is defined above) is the parameter 
+    const char *name and our palloced copy is the void *aux. Two things next
+    occur: 1) The char *name, pointing to the origonal string, is passed to 
+    init_thread. 2) Aux is copied over into the new threads frame as 
+    thread ->aux. 
+
+    (init_thread)
+    We find the length of the arugment using strcspn searching for " \0"
+    and then copy over this many characters from the const char *name as the 
+    new thread's name.
+
+    (Aux Copied Over)
+    This will be accesed in process_start
+
+    The parent thread will then return to proces execute.
+
+    (Procces_execute)
+    If there was an error creating the thread, the parent frees the palloced
+    page of arguments + function to execute (file_name). The parent returns 
+    with the the tid of the new thread (or the -1 error signal if the thread
+    failed to create)
+
+    (Returns to system call)
+    As long as process_execute was sucessful (does not return -1) then the 
+    parent will sema_down on child_exec_sema and wait for its child to run.
+    Note. child_exec_sema explained in system call data structure section.
+
+    TIME PASSES, amount depends on state + scheduler, CHILD RUNS
+    
+    BRIEF-------------------------------------------------------------------
+
+    Child process will begin running start_process
+
+    (start_process)
+    Child will first set up its stack in load, calling thread_exit() if there is 
+    an error. If not, we call setup_user_stack.
+
+    (setup_user_stack)
+    In this funciton we take in a void **esp, char **args, and char *file_name.
+    
+    We palloc a new page of memory which we call char **buf. We then tokenize
+    our page of arguments/function name which was palloced in 
+    process_exit and is now pointed to by char **args. We use strtok_r. We store
+    the pointer to each of these tokens in buf, our palloced page. We keep track
+    of the number of arguments tokenized in a local varible num_args. Note that
+    after this code section finishes, buf is now an array of pointers to all of 
+    the arguments/the function name.
+
+    Next, we copy over information to the stack as required by
+    the standard calling convention:
+
+    We first copy the arguments themselves. We do this in reverse order, onto the stack. 
+    For each argument we strlen the size, decrement esp by this amount, and then 
+    copy over this amount + 1 (saving room for \0). Note that we can easily access
+    our arguments using the pointers in buf. As we copy over each argument to the
+    stack we replace their address stored in buf, with their new address on the stack.
+
+    We then align the stack to multiple of four and load a null pointer which will
+    be above the last argument pointer.
+    
+    After that, we load the stack address of each  argument (pointers) onto the
+    stack in reverse order. We copy the address in buf, which we updated as we 
+    copied the arguments themselves to the stack, to the stack (decrementing by 
+    esp and then copying over.)
+
+    Next, we load the char ** to the function's first argument as required and
+    the number of arguments which we copy from num_args.
+
+    Finally, we copy in a null pointer as a dummy function pointer.
+
+    After all this, the child will return to start_process.
+
+    (start process)
+    On sucessful loading of user stack it will sema_up its parent's child_exec_sema 
+    thus completing the process.
+
+    We avoid overflowing the stack by using palloced space. That is the
+    palloced page of arguments & function name as well as a palloced page
+    of pointers to this other page. Since we use very little memory in
+    the kernel thread, overflow is not a concern.
+
+
+---- RATIONALE ----
+
+>> A3: Why does Pintos implement strtok_r() but not strtok()?
+
+     The main difference between strtok_r() and strtok() is that strtok_r()
+     is thread safe and works in multi threaded environments. strtok() saves
+     its state in between tokens with a pointer and is vulnerable in a multi threaded
+     environment like  pintos. strok_r() requires a third parameter to store its
+     location in the string it is tokenizing.
+
+>> A4: In Pintos, the kernel separates commands into a executable name
+>> and arguments.  In Unix-like systems, the shell does this
+>> separation.  Identify at least two advantages of the Unix approach.
+
+     Advantage 1.
+     The Unix approach offers an extra layer of abstraction to argument passing.
+     Before the command even reaches the kernel, the shell can parse and check for errors.
+     This protects the kernel from unsafe arguments passed in.
+
+     Advantage 2.
+     The Unix-like systems simplfies the work the kernel has to do and reduces the
+     complexity of the kernel code. Reduced complexity means a decreased probablity
+     of bugs and faster code (just less code).
+
+     Advantage 3,
+     Faster response time for bad arguments or function name. As opposed to having
+     to drop into kernel mode, discover an argument or function name is bad and 
+     return to user mode, the UNIX-like systems can simply check in user mode and
+     reject in user mode. Thus, much time is saved, including the time to trap into
+     the kernel and then transistion back. 
+
+     Advantage 4,
+    
+
+
+SYNCHRO
+
+    B9:
+    We access user memory only during argument passing or system calls. In each
+    situation we do so by heavily checking the pointer to each location in user
+    memory. We check it is in the valid user address range, that it is not a 
+    null pointer, and then that the memory it points to is mapped.
+
+    We accesed user in this way since we did not want an invalid address to be 
+    accesed in the kernal mode. This would cause an exception which would cause
+    the OS to quite. A user process should never be able to break the OS no
+    matter what invalid operations it attempts to do.
+
+    B10: 
+    One big advantadge is speed of lookup. Our fd are indexs into an array of file
+    pointers in each thread's struct. This means that when the kernel needs to read
+    write, or otherwise access a file opened by a user process, it can simply index
+    into the array. If this index is NULL, this is not a valid file fd. Note that
+    we reserve array index 0 and 1 for stdin and stout and thus they are always null.
+
+    One disadvantage is speed after 128 files have been opened. Before this we store 
+    an index of the next available file pointer index in the thread's array. Before
+    128 files are opened, this can be found simply by moving one index higher. However,
+    after 128 files are opened, each index is searched. Thus searching 128 indexs in 
+    the worst case. In retrospect it would have been adventagous to have a free list 
+    or another similiar mechanism. 
+
+    Another advantadge is predictablity. We limit the files a thread can open
+    and thus can predict how much space it will use in regard to files.
+    
+    Another disadvantadge is non-dynamic memory. Threads can open 128 files. If the
+    thread has already opened 128 files, and wants to open another, it cannot.
+
+    
+    B11:  We did not change this mapping.
+     
+
+   
+
+
+In pintos a lot of work is done inside the kernel to check for
+     correct parsing and correct formatting. If all this work is done in the shell then
+     the kernel only has to worry about setting up the stack. This decreased
+     complexity both makes bugs less likely and also makes the kernel code run 
+     faster.
+
