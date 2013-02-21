@@ -113,6 +113,7 @@ palloc_get_page (enum palloc_flags flags)
   return palloc_get_multiple (flags, 1);
 }
 
+
 /* Frees the PAGE_CNT pages starting at PAGES. */
 void
 palloc_free_multiple (void *pages, size_t page_cnt) 
