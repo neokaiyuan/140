@@ -2,12 +2,9 @@
 
 struct frame_entry {
   struct thread *thread;
-  void *user_vaddr;
-}
+  void *upage;
+};
  
-
-void frame_init ();
-void *frame_add (struct thread *thread, void *user_vaddr);
-void frame_remove (struct frame_entry *entry);
-
-
+void frame_init (size_t user_page_limit);
+void *frame_add (struct thread *thread, void *upage, bool zero_page);
+void frame_remove (void *kpage);

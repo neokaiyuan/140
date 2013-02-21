@@ -1,6 +1,9 @@
-#include <assert.h>
+#include <stdio.h>
 #include <stdbool.h>
 #include <stdint.h>
+#include "threads/malloc.h"
+#include "threads/palloc.h"
+#include "threads/vaddr.h"
 #include "vm/frame.h"
 
 static struct frame_entry *frame_table;
@@ -15,37 +18,46 @@ frame_init (size_t user_page_limit)
   size_t user_pages = free_pages / 2;
   if (user_pages > user_page_limit)
     user_pages = user_page_limit;
-  frame_table = malloc (sizeof(frame_entry) * user__pages);
+  frame_table = (struct frame_entry *) malloc (sizeof(struct frame_entry) 
+                                       * user_pages);
   lock_init (&frame_table_lock);
 }
 
+static struct frame_entry *
+kpage_to_frame_entry (void *kpage)
+{
+  void *phys_addr = (void *) (kpage - PHYS_BASE);
+  int index = (unsigned) phys_addr / PGSIZE;
+  return &frame_table[index];
+}
+
 void *
-frame_add (struct thread *thread, void *user_vaddr) 
+frame_add (struct thread *thread, void *upage, bool zero_page) 
 {
   lock_acquire (&frame_table_lock);
 
-  void *kernel_vaddr = palloc_get_page(0); 
-  if (kernel_vaddr == NULL) {
+  void *kpage = zero_page ? palloc_get_page (PAL_USER) 
+                                 : palloc_get_page (PAL_USER | PAL_ZERO); 
+  if (kpage == NULL) {
     //Will implemenent swping to swp disk here
     ASSERT(true);
   }
-  void *phys_addr = kernel_vaddr - PHYS_BASE;
-  int index = phys_addr / PGSIZE;
-  struct frame_entry *entry = &frame_table[index];
-  frame_entry->thread = thread;
-  frame_entry->user_vaddr = user_vaddr;
+  struct frame_entry *entry = kpage_to_frame_entry (kpage);
+  entry->thread = thread;
+  entry->upage = upage;
 
   lock_release (&frame_table_lock);
-  return phys_addr;
+  return kpage;
 }
 
 void
-frame_remove (struct frame_entry *entry)
+frame_remove (void *kpage)
 {
   lock_acquire (&frame_table_lock);
 
-  free (entry->user_vaddr);
-  entry->user_vaddr = entry->thread = NULL;
+  struct frame_entry *entry = kpage_to_frame_entry (kpage);
+  palloc_free_page (entry->upage);
+  entry->upage = entry->thread = NULL;
 
   lock_release (&frame_table_lock);
 }
