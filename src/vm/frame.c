@@ -31,6 +31,8 @@ kpage_to_frame_entry (void *kpage)
   return &frame_table[index];
 }
 
+
+/* allocates page in physical memory for a specific thread's virtual memory */
 void *
 frame_add (struct thread *thread, void *upage, bool zero_page) 
 {

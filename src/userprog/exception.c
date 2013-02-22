@@ -4,6 +4,7 @@
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "vm/page.h"
 
 /* Number of page faults processed. */
 static long long page_fault_cnt;
@@ -110,6 +111,22 @@ kill (struct intr_frame *f)
     }
 }
 
+static bool
+mem_valid (void *addr)
+{
+  return ptr != NULL && ptr < PHYS_BASE;
+  // WHAT IF IT IS AT F->ESP - 8? INVALID STACK ADDRESS?
+}
+
+static bool
+is_stack_addr (void *addr, struct intr_frame *f)
+{
+  bool is_stack_addr = false;
+  if (addr == f->esp - 4 || addr == f->esp -32) is_stack_addr = true;
+  if (addr >= f->esp && addr < PHYS_BASE) is_stack_addr = true;
+  return is_stack_addr;
+}
+
 /* Page fault handler.  This is a skeleton that must be filled in
    to implement virtual memory.  Some solutions to project 2 may
    also require modifying this code.
@@ -150,14 +167,26 @@ page_fault (struct intr_frame *f)
   write = (f->error_code & PF_W) != 0;
   user = (f->error_code & PF_U) != 0;
 
-  /* To implement virtual memory, delete the rest of the function
-     body, and replace it with code that brings in the page to
-     which fault_addr refers. */
-  printf ("Page fault at %p: %s error %s page in %s context.\n",
-          fault_addr,
-          not_present ? "not present" : "rights violation",
-          write ? "writing" : "reading",
-          user ? "user" : "kernel");
-  kill (f);
-}
+  /* Determine if a valid address if so, bring it into memory and return */
 
+  struct thread *t = thread_current ();
+  if (mem_valid (fault_addr)) {
+    if (is_stack_addr (fault_addr, f)) {
+      // COULD BE ON SWAP!!!!! DON'T ADD IN THIS CASE!!!!!
+      // need to page align
+      page_add (t->sup_page_table, fault_addr, NULL, _STACK, UNMAPPED, -1,
+                NULL, -1, true, true);
+    }
+    page_map (fault_addr);
+  } else {
+    /* To implement virtual memory, delete the rest of the function
+      body, and replace it with code that brings in the page to
+      which fault_addr refers. */
+    printf ("Page fault at %p: %s error %s page in %s context.\n",
+            fault_addr,
+            not_present ? "not present" : "rights violation",
+            write ? "writing" : "reading",
+            user ? "user" : "kernel");
+    kill (f);
+  }
+}
