@@ -15,6 +15,7 @@
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
+#include "vm/page.h"
 
 /* Random value for struct thread's `magic' member.
    Used to detect stack overflow.  See the big comment at the top
@@ -569,6 +570,10 @@ init_thread (struct thread *t, const char *name, int priority)
   t->pid_waiting_on = NOBODY;
   t->my_exec = NULL;
   lock_init(&t->wait_lock);
+
+  /* the following for project 3 */
+  lock_init (&t->sup_page_table_lock);
+  t->sup_page_table = page_init();
 
   t->magic = THREAD_MAGIC;
 

@@ -37,7 +37,7 @@ frame_add (struct thread *thread, void *upage, bool zero_page)
   lock_acquire (&frame_table_lock);
 
   void *kpage = zero_page ? palloc_get_page (PAL_USER) 
-                                 : palloc_get_page (PAL_USER | PAL_ZERO); 
+                          : palloc_get_page (PAL_USER | PAL_ZERO); 
   if (kpage == NULL) {
     //Will implemenent swping to swp disk here
     ASSERT(true);

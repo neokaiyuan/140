@@ -1,8 +1,8 @@
 #include "threads/thread.h"
 
 struct frame_entry {
-  struct thread *thread;
-  void *upage;
+  struct thread *thread;  // to access the thread's pagedir
+  void *upage;            // to access the entry in thread's pagedir
 };
  
 void frame_init (size_t user_page_limit);

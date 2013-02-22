@@ -135,6 +135,9 @@ struct thread
     int next_open_file_index;
 
     struct lock wait_lock;               /* used to prevent race conditions in syscall wait */
+   /* Project three additions */
+    struct lock sup_page_table_lock;
+    struct hash *sup_page_table;
   };
 
 struct exit_info
