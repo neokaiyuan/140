@@ -2,9 +2,9 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "threads/malloc.h"
-#include "threads/pagedir.c"
 #include "threads/palloc.h"
 #include "threads/vaddr.h"
+#include "userprog/pagedir.h"
 #include "vm/frame.h"
 
 static struct frame_entry *frame_table;
@@ -74,9 +74,9 @@ static void
 change_pin_status (bool pinned, void *upage) 
 {
   struct thread *t = thread_current ();
-  void *phys_addr = pagedir_get_page (t->pagedir, upage);
-  ASSERT (phys_addr != NULL);
-  struct frame_entry *entry = kpage_to_frame_entry (phys_addr+PHYS_BASE);
+  void *kpage = pagedir_get_page (t->pagedir, upage);
+  ASSERT (kpage!= NULL);
+  struct frame_entry *entry = kpage_to_frame_entry (kpage);
   entry->pinned = pinned;
 }
 
@@ -89,7 +89,7 @@ void
 frame_pin_memory (void *upage, int length)
 {
   lock_acquire (&frame_table_lock);
-
+  int i = 0;
   int first_page_offset = (unsigned) upage % PGSIZE;
   change_pin_status (true, upage);
   length -= (PGSIZE - first_page_offset);
@@ -113,11 +113,11 @@ void frame_unpin_memory (void *upage, int length)
 
   int first_page_offset = (unsigned) upage % PGSIZE;
   change_pin_status (false, upage);
-  size -= (PGSIZE - first_page_offset);
+  length -= (PGSIZE - first_page_offset);
   while (length > 0) {
     upage += PGSIZE; 
     change_pin_status (false, upage);
-    length -= PGSIZE
+    length -= PGSIZE;
   }
 
   lock_release (&frame_table_lock);

@@ -4,6 +4,7 @@
 #include "userprog/gdt.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "threads/vaddr.h"
 #include "vm/page.h"
 
 /* Number of page faults processed. */
@@ -166,11 +167,12 @@ page_fault (struct intr_frame *f)
   ASSERT (user == true);
   struct thread *t = thread_current ();
   if (user_addr_valid (fault_addr, f)) {
-    if (fault_addr == f->esp - 4 || fault_addr == f->esp - 32) {
+    if (fault_addr == f->esp - 4 || fault_addr == f->esp - 32 || 
+        !page_entry_present (t, fault_addr)) {
       page_add_entry (t->sup_page_table, fault_addr, NULL, _STACK, 
                       UNMAPPED, -1, -1, NULL, -1, true, true);
     }
-    page_map (fault_addr);
+    page_map (fault_addr, false);
   } else {
     /* To implement virtual memory, delete the rest of the function
       body, and replace it with code that brings in the page to

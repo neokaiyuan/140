@@ -113,13 +113,13 @@ mem_valid (const void *ptr, int size)
   int page_num_first_byte = (unsigned) ptr / PGSIZE;
   int page_num_last_byte = (unsigned) last_byte / PGSIZE;
   int pages_in_between = page_num_last_byte - page_num_first_byte;
-  const void *page_of_memory = ptr; 
+  const void *curr_page = ptr; 
 
   int i;
-  for (i = 0; i < pages_in_between+1; i++) {
-    if (pagedir_get_page (thread_current()->pagedir, page_of_memory) == NULL)
+  for (i = 0; i < pages_in_between + 1; i++) {
+    if (pagedir_get_page (thread_current()->pagedir, curr_page) == NULL)
       return false;
-    page_of_memory += PGSIZE;
+    curr_page += PGSIZE;
   }
 
   return true;

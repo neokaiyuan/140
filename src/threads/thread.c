@@ -1,7 +1,9 @@
 #include "threads/thread.h"
 #include <debug.h>
-#include <stddef.h>
+#include <fixed-point.h> //helper functions for fixed point conversions
+#include <hash.h>
 #include <random.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <string.h>
 #include "threads/flags.h"
@@ -11,7 +13,6 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
-#include "lib/kernel/fixed-point.h" //helper functions for fixed point conversions
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -572,8 +573,10 @@ init_thread (struct thread *t, const char *name, int priority)
   lock_init(&t->wait_lock);
 
   /* the following for project 3 */
-  lock_init (&t->sup_page_table_lock);
-  t->sup_page_table = page_init();
+  if (t != initial_thread) {
+    lock_init (&t->sup_page_table_lock);
+    t->sup_page_table = page_init ();
+  }
 
   t->magic = THREAD_MAGIC;
 

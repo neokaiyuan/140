@@ -1,5 +1,6 @@
 #include "userprog/process.h"
 #include <debug.h>
+#include <hash.h>
 #include <inttypes.h>
 #include <round.h>
 #include <stdio.h>
@@ -19,6 +20,7 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "vm/frame.h"
+#include "vm/page.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -202,13 +204,13 @@ process_wait (tid_t child_tid)
 }
 
 static void
-sup_page_table_action_func (struct hash_elem *e, void *aux)
+sup_page_table_action_func (struct hash_elem *e, void *aux UNUSED)
 {
-  struct sup_page_entry *entry = hash_entry (e, struct sup_page_entry, elem); 
-  page_remove (thread_current ()->sup_page_table, entry->upage);
-  // NEED TO USEEITHER REMOVE_ENTRY OR UNMAP
+  struct sup_page_entry *entry = (struct sup_page_entry *) 
+                                  hash_entry (e, struct sup_page_entry, elem); 
+  page_unmap_via_entry (thread_current (), entry);
+  free (entry);  
 }
-
 
 /* Free the current process's resources. */
 void
@@ -259,7 +261,7 @@ process_exit (void)
     lock_release(&t->parent->wait_lock);
   }
 
-  // INSERT CLEANUP OF SUPPLEMENTAL PAGE TABLE 
+  hash_destroy (t->sup_page_table, &sup_page_table_action_func); 
 
   uint32_t *pd;
 
@@ -583,7 +585,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       /* Get a page of memory. */
       struct thread *t = thread_current ();
       page_add_entry (t->sup_page_table, upage, NULL, _EXEC, UNMAPPED, -1, 
-                      page_read_bytes, file, ofs, false, writeable);
+                      page_read_bytes, file, ofs, false, writable);
       //uint8_t *kpage = frame_add (thread_current(), upage, false);
       //uint8_t *kpage = palloc_get_page (PAL_USER);
       /*if (kpage == NULL)
@@ -620,23 +622,29 @@ static bool
 setup_stack (void **esp) 
 {
   uint8_t *kpage;
-  bool success = false;
+  //bool success = false;
 
   struct thread *t = thread_current ();
+  if (page_entry_present (t, PHYS_BASE - PGSIZE)) return false;
   page_add_entry (t->sup_page_table, PHYS_BASE - PGSIZE, NULL, _STACK,
                   UNMAPPED, -1, -1, NULL, -1, true, true);
   kpage = page_map (PHYS_BASE - PGSIZE, true); 
+  ASSERT (kpage != NULL);
+  *esp = PHYS_BASE;
+  return true;
+/*
   if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success) {
         *esp = PHYS_BASE;
       } else {
-        page_remove_entry (t->sup_page_table, PHYS_BASE - PGSIZE);
-        page_unmap (PHYS_BASE - PGSIZE);
+        page_unmap_via_upage (t, PHYS_BASE - PGSIZE);
+        page_remove_entry (PHYS_BASE - PGSIZE);
       }
     }
   return success;
+  */
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
