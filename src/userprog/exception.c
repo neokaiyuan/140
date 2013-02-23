@@ -112,16 +112,19 @@ kill (struct intr_frame *f)
 }
 
 static bool
-mem_valid (void *addr)
+user_addr_valid (void *addr, struct intr_frame *f)
 {
-  return ptr != NULL && ptr < PHYS_BASE;
-  // WHAT IF IT IS AT F->ESP - 8? INVALID STACK ADDRESS?
+  if (addr == NULL || addr >= PHYS_BASE) 
+    return false;
+  if (addr >= PHYS_BASE - STACK_SIZE_LIMIT && addr < f->esp &&
+      addr != f->esp - 8 && addr != f->esp - 32)
+    return false;
+  return true;
 }
 
 static bool
 is_stack_addr (void *addr, struct intr_frame *f)
 {
-  bool is_stack_addr = false;
   if (addr == f->esp - 4 || addr == f->esp -32) is_stack_addr = true;
   if (addr >= f->esp && addr < PHYS_BASE) is_stack_addr = true;
   return is_stack_addr;
@@ -168,14 +171,12 @@ page_fault (struct intr_frame *f)
   user = (f->error_code & PF_U) != 0;
 
   /* Determine if a valid address if so, bring it into memory and return */
-
+  ASSERT (user == true);
   struct thread *t = thread_current ();
-  if (mem_valid (fault_addr)) {
-    if (is_stack_addr (fault_addr, f)) {
-      // COULD BE ON SWAP!!!!! DON'T ADD IN THIS CASE!!!!!
-      // need to page align
-      page_add (t->sup_page_table, fault_addr, NULL, _STACK, UNMAPPED, -1,
-                NULL, -1, true, true);
+  if (user_addr_valid (fault_addr, f)) {
+    if (fault_addr == f->esp - 4 || fault_addr == f->esp - 32) {
+      page_add_unmapped (t->sup_page_table, fault_addr, NULL, _STACK, 
+                         UNMAPPED, -1, NULL, -1, true, true);
     }
     page_map (fault_addr);
   } else {

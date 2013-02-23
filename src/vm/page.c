@@ -34,9 +34,12 @@ page_init()
 /* map a page to user virtual memory, but not physical memory */
 void
 page_add_unmapped (struct hash *sup_page_table, void *upage, void *kpage,
-          enum page_type, enum page_loc, int swap_index, struct file *file,
-          int file_offset, bool zeroed, bool writeable)
+                   enum page_type, enum page_loc, int swap_index, 
+                   struct file *file, int file_offset, bool zeroed, 
+                   bool writeable)
 {
+  upage -= upage % PGSIZE;
+
   struct sup_page_entry *entry = malloc (sizeof(struct sup_page_entry));
   entry->upage = upage;
   entry->kpage = kpage;
@@ -120,6 +123,7 @@ page_remove (struct hash *sup_page_table, void *upage)
 void
 page_map (void *upage)
 {
+  upage -= upage % PGSIZE;
   ASSERT (upage % PGSIZE == 0);
 
   struct thread *t = thread_current ();

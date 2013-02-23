@@ -608,7 +608,6 @@ setup_stack (void **esp)
   bool success = false;
 
   kpage = frame_add (thread_current(), ((uint8_t *) PHYS_BASE)-PGSIZE, true); 
-// kpage = palloc_get_page (PAL_USER | PAL_ZERO);  // gets user page and zeros
   if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
@@ -616,7 +615,6 @@ setup_stack (void **esp)
         *esp = PHYS_BASE;
       } else {
         frame_remove (kpage);
-        //palloc_free_page (kpage);
       }
     }
   return success;

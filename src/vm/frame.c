@@ -2,6 +2,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "threads/malloc.h"
+#include "threads/pagedir.c"
 #include "threads/palloc.h"
 #include "threads/vaddr.h"
 #include "vm/frame.h"
@@ -47,6 +48,7 @@ frame_add (struct thread *thread, void *upage, bool zero_page)
   struct frame_entry *entry = kpage_to_frame_entry (kpage);
   entry->thread = thread;
   entry->upage = upage;
+  entry->is_pinned = false;
 
   lock_release (&frame_table_lock);
   return kpage;
@@ -60,6 +62,64 @@ frame_remove (void *kpage)
   struct frame_entry *entry = kpage_to_frame_entry (kpage);
   palloc_free_page (entry->upage);
   entry->upage = entry->thread = NULL;
+
+  lock_release (&frame_table_lock);
+}
+
+/*
+    This function will pin or unpin a page of memory
+    given its upage, note it assumes that the caller
+    has already acquired the frame table lock.
+ */
+static void
+change_pin_status (bool pinned, void *upage) 
+{
+  struct thread *t = thread_current ();
+  void *phys_addr = pagedir_get_page (t->pagedir, upage);
+  ASSERT (phys_addr != NULL);
+  struct frame_entry *entry = kpage_to_frame_entry (phys_addr+PHYS_BASE);
+  entry->pinned = pinned;
+}
+
+/* 
+    This function will pin memory at upage extending size bytes. This 
+    memory cannot be changed again until it is unpinned. this
+    restriction can be circumvented by a process when it exits.
+ */
+void
+frame_pin_memory (void *upage, int length)
+{
+  lock_acquire (&frame_table_lock);
+
+  int first_page_offset = (unsigned) upage % PGSIZE;
+  change_pin_status (true, upage);
+  length -= (PGSIZE - first_page_offset);
+  while (length > 0) {
+    upage += PGSIZE; 
+    change_pin_status (true, upage);
+    length -= PGSIZE;
+  }
+
+  lock_release (&frame_table_lock);
+}
+
+/*
+    The sister function to frame_pin_memory. Unpins a region
+    of physical memory corrosponded to by upage and extending
+    size bytes.
+*/
+void frame_unpin_memory (void *upage, int length) 
+{
+  lock_acquire (&frame_table_lock);
+
+  int first_page_offset = (unsigned) upage % PGSIZE;
+  change_pin_status (false, upage);
+  size -= (PGSIZE - first_page_offset);
+  while (length > 0) {
+    upage += PGSIZE; 
+    change_pin_status (false, upage);
+    length -= PGSIZE
+  }
 
   lock_release (&frame_table_lock);
 }

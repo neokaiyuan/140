@@ -1,5 +1,7 @@
 #include "lib/kernel/hash.h"
 
+#define STACK_SIZE_LIMIT 1073741824 // one gigabyte
+
 enum page_loc {
   UNMAPPED = 0;     // unmapped to physical memory
   MAIN_MEMORY = 1;
@@ -37,6 +39,4 @@ void page_add (struct hash *sup_page_table, void *upage, void *kpage,
 void page_remove (struct hash *sup_page_table, hash_elem *elem);
 void page_map (void *upage);
 
-
 //void page_evict();
-
