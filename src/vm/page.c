@@ -33,7 +33,7 @@ page_init()
 
 /* map a page to user virtual memory, but not physical memory */
 void
-page_add_unmapped (struct hash *sup_page_table, void *upage, void *kpage,
+page_add_entry (struct hash *sup_page_table, void *upage, void *kpage,
                    enum page_type, enum page_loc, int swap_index, 
                    struct file *file, int file_offset, bool zeroed, 
                    bool writeable)
@@ -74,6 +74,7 @@ write_page_to_disk (struct block *block, int page_index, void *buffer)
   }  
 }
 
+// WE NEED TO CREATE PAGE_REMOVE_MAPPING AND PAGE_REMOVE_ENTRY
 /* unmap a page from physical memory and user virtual memory */
 void
 page_remove (struct hash *sup_page_table, void *upage) 
@@ -83,8 +84,9 @@ page_remove (struct hash *sup_page_table, void *upage)
 
   struct sup_page_entry dummy;
   dummy.upage = upage;
-  struct sup_page_entry *entry = hash_find (sup_page_table, &dummy.elem);
- 
+  struct hash_elem *e = hash_find (sup_page_table, &dummy.elem);
+  struct sup_page_entry *entry = hash_entry (e, struct sup_page_entry, elem); 
+
   if (entry->page_loc == MAIN_MEMORY) {
 
     if (entry->page_type == _FILE && entry->writeable && 
@@ -120,22 +122,23 @@ page_remove (struct hash *sup_page_table, void *upage)
 }
 
 /* map an address into main memory */
-void
-page_map (void *upage)
+void *
+page_map (void *upage, bool pinned)
 {
   upage -= upage % PGSIZE;
   ASSERT (upage % PGSIZE == 0);
 
   struct thread *t = thread_current ();
-  lock_acquire(&thread->sup_page_table_lock);
+  lock_acquire (&thread->sup_page_table_lock);
 
   struct sup_page_entry dummy;
   dummy.upage = upage;
-  struct sup_page_entry *entry = hash_find (sup_page_table, &dummy.elem); 
+  struct hash_elem *e = hash_find (sup_page_table, &dummy.elem); 
+  struct sup_page_entry *entry = hash_entry (e, struct sup_page_entry, elem); 
 
   if (entry->page_loc == UNMAPPED) {
-    void *k_page = frame_add (thread_current(), upage, entry->zeroed);
-    if (k_page == NULL) {
+    void *kpage = frame_add (thread_current(), upage, entry->zeroed, pinned);
+    if (kpage == NULL) {
       // evict something
     }
     
@@ -145,12 +148,15 @@ page_map (void *upage)
 
     if (entry->page_type == _FILE || entry-page_type == _EXEC){
       lock_acquire (&filesys_lock);
-      file_read_at (entry->file, upage, PGSIZE, entry->file_offset);
+      file_read_at (entry->file, upage, entry->page_read_bytes, entry->file_offset);
+      memset (upage + entry->page_read_bytes, 0, PGSIZE - entry->page_read_bytes);
       lock_release (&filesys_lock);
     }
   
   } else if (entry->page_loc == SWAP_DISK) {
     // Related to evict
   }
+
   lock_release (&t->sup_page_table_lock);
+  return kpage;
 }

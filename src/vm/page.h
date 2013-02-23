@@ -24,6 +24,8 @@ struct sup_page_entry {
 
   int swap_page_index;
 
+  int page_read_bytes;  // only applies to executables
+
   struct file *file;
   int file_offset;
 
@@ -32,11 +34,12 @@ struct sup_page_entry {
 }
 
 struct hash *page_init();
-void page_add (struct hash *sup_page_table, void *upage, void *kpage,
-               enum page_type, enum page_loc, int swap_index, 
-               struct file *file, int file_offset, bool zeroed,
-               bool writeable);
-void page_remove (struct hash *sup_page_table, hash_elem *elem);
-void page_map (void *upage);
+void page_add_entry (struct hash *sup_page_table, void *upage, void *kpage,
+                        enum page_type, enum page_loc, int swap_index, 
+                        int page_read_bytes, struct file *file, 
+                        int file_offset, bool zeroed, bool writeable);
+void page_remove_entry (struct hash *sup_page_table, void *upage);
+void *page_map (void *upage);
+void *page_unmap (void *upage);
 
 //void page_evict();

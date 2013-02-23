@@ -7,7 +7,7 @@ struct frame_entry {
 };
  
 void frame_init (size_t user_page_limit);
-void *frame_add (struct thread *thread, void *upage, bool zero_page);
+void *frame_add (struct thread *thread, void *upage, bool zero_page, bool pinned);
 void frame_remove (void *kpage);
 void frame_pin_memory (void *upage, int length);
 void frame_unpin_memory (void *upage, int length);

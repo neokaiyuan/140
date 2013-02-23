@@ -117,7 +117,7 @@ start_process (void *aux)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  success = load (file_name, &if_.eip, &if_.esp);
+  success = load (file_name, &if_.eip, &if_.esp); // now incorporates pinning the page
 
   struct thread *t = thread_current();
   if (success) {
@@ -138,6 +138,7 @@ start_process (void *aux)
 
     /* load arguments onto user stack */
     setup_user_stack (&if_.esp, &save_ptr, file_name); 
+    frame_unpin_memory (PHYS_BASE - PGSIZE, PGSIZE);
   }
 
   /* signal parent thread to return */  
@@ -181,10 +182,10 @@ process_wait (tid_t child_tid)
        e != list_end (&t->children_exit_info); e = list_next (e)) {
     struct exit_info *info = list_entry (e, struct exit_info, elem);
     if (info->tid == child_tid) {
-      lock_acquire(&t->wait_lock);
+      lock_acquire (&t->wait_lock);
       if (info->child != NULL) {  // child != NULL means child still running
         t->pid_waiting_on = child_tid;
-        lock_release(&t->wait_lock);
+        lock_release (&t->wait_lock);
         sema_down (&t->child_wait_sema);
         t->pid_waiting_on = NOBODY;
       } else {
@@ -199,6 +200,15 @@ process_wait (tid_t child_tid)
   }
   return -1;
 }
+
+static void
+sup_page_table_action_func (struct hash_elem *e, void *aux)
+{
+  struct sup_page_entry *entry = hash_entry (e, struct sup_page_entry, elem); 
+  page_remove (thread_current ()->sup_page_table, entry->upage);
+  // NEED TO USEEITHER REMOVE_ENTRY OR UNMAP
+}
+
 
 /* Free the current process's resources. */
 void
@@ -248,6 +258,8 @@ process_exit (void)
       sema_up (&t->parent->child_wait_sema);
     lock_release(&t->parent->wait_lock);
   }
+
+  // INSERT CLEANUP OF SUPPLEMENTAL PAGE TABLE 
 
   uint32_t *pd;
 
@@ -559,7 +571,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
   
-  file_seek (file, ofs);
+  //file_seek (file, ofs);
   while (read_bytes > 0 || zero_bytes > 0) 
     {
       /* Calculate how to fill this page.
@@ -569,28 +581,31 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
       /* Get a page of memory. */
-      uint8_t *kpage = frame_add (thread_current(), upage, false);
+      struct thread *t = thread_current ();
+      page_add_entry (t->sup_page_table, upage, NULL, _EXEC, UNMAPPED, -1, 
+                      page_read_bytes, file, ofs, false, writeable);
+      //uint8_t *kpage = frame_add (thread_current(), upage, false);
       //uint8_t *kpage = palloc_get_page (PAL_USER);
-      if (kpage == NULL)
+      /*if (kpage == NULL)
         return false;
-
+      */
       /* Load this page. */
-      int num_bytes = file_read (file, kpage, page_read_bytes);
+      /*int num_bytes = file_read (file, kpage, page_read_bytes);
       if (num_bytes != (int) page_read_bytes)
         {
-          frame_remove (kpage);
+          page_remove (t->sup_page_table, upage);
           //palloc_free_page (kpage);
           return false; 
-        }
-      memset (kpage + page_read_bytes, 0, page_zero_bytes);
+        }*/
+      //memset (kpage + page_read_bytes, 0, page_zero_bytes);
 
       /* Add the page to the process's address space. */
-      if (!install_page (upage, kpage, writable)) 
+      /*if (!install_page (upage, kpage, writable)) 
         {
-          frame_remove (kpage);
+          page_remove (t->sup_page_table, upage);
           return false; 
         }
-
+*/
       /* Advance. */
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
@@ -607,14 +622,18 @@ setup_stack (void **esp)
   uint8_t *kpage;
   bool success = false;
 
-  kpage = frame_add (thread_current(), ((uint8_t *) PHYS_BASE)-PGSIZE, true); 
+  struct thread *t = thread_current ();
+  page_add_entry (t->sup_page_table, PHYS_BASE - PGSIZE, NULL, _STACK,
+                  UNMAPPED, -1, -1, NULL, -1, true, true);
+  kpage = page_map (PHYS_BASE - PGSIZE, true); 
   if (kpage != NULL) 
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success) {
         *esp = PHYS_BASE;
       } else {
-        frame_remove (kpage);
+        page_remove_entry (t->sup_page_table, PHYS_BASE - PGSIZE);
+        page_unmap (PHYS_BASE - PGSIZE);
       }
     }
   return success;

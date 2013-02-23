@@ -20,7 +20,7 @@ frame_init (size_t user_page_limit)
   if (user_pages > user_page_limit)
     user_pages = user_page_limit;
   frame_table = (struct frame_entry *) malloc (sizeof(struct frame_entry) 
-                                       * user_pages);
+                                               * user_pages);
   lock_init (&frame_table_lock);
 }
 
@@ -32,10 +32,9 @@ kpage_to_frame_entry (void *kpage)
   return &frame_table[index];
 }
 
-
 /* allocates page in physical memory for a specific thread's virtual memory */
 void *
-frame_add (struct thread *thread, void *upage, bool zero_page) 
+frame_add (struct thread *thread, void *upage, bool zero_page, bool pinned) 
 {
   lock_acquire (&frame_table_lock);
 
@@ -48,7 +47,7 @@ frame_add (struct thread *thread, void *upage, bool zero_page)
   struct frame_entry *entry = kpage_to_frame_entry (kpage);
   entry->thread = thread;
   entry->upage = upage;
-  entry->is_pinned = false;
+  entry->pinned = pinned;
 
   lock_release (&frame_table_lock);
   return kpage;

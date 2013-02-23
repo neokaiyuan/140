@@ -117,17 +117,9 @@ user_addr_valid (void *addr, struct intr_frame *f)
   if (addr == NULL || addr >= PHYS_BASE) 
     return false;
   if (addr >= PHYS_BASE - STACK_SIZE_LIMIT && addr < f->esp &&
-      addr != f->esp - 8 && addr != f->esp - 32)
+      addr != f->esp - 8 && addr != f->esp - 32)  // invalid stack memory
     return false;
   return true;
-}
-
-static bool
-is_stack_addr (void *addr, struct intr_frame *f)
-{
-  if (addr == f->esp - 4 || addr == f->esp -32) is_stack_addr = true;
-  if (addr >= f->esp && addr < PHYS_BASE) is_stack_addr = true;
-  return is_stack_addr;
 }
 
 /* Page fault handler.  This is a skeleton that must be filled in
@@ -175,8 +167,8 @@ page_fault (struct intr_frame *f)
   struct thread *t = thread_current ();
   if (user_addr_valid (fault_addr, f)) {
     if (fault_addr == f->esp - 4 || fault_addr == f->esp - 32) {
-      page_add_unmapped (t->sup_page_table, fault_addr, NULL, _STACK, 
-                         UNMAPPED, -1, NULL, -1, true, true);
+      page_add_entry (t->sup_page_table, fault_addr, NULL, _STACK, 
+                      UNMAPPED, -1, -1, NULL, -1, true, true);
     }
     page_map (fault_addr);
   } else {
