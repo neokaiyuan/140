@@ -230,6 +230,12 @@ pagedir_activate (uint32_t *pd)
   asm volatile ("movl %0, %%cr3" : : "r" (vtop (pd)) : "memory");
 }
 
+uint32_t *
+current_pd (void) {
+  return active_pd ();
+
+}
+
 /* Returns the currently active page directory. */
 static uint32_t *
 active_pd (void) 

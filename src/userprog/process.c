@@ -253,6 +253,9 @@ process_exit (void)
 
   printf ("%s: exit(%d)\n", t->name, t->exit_status);
 
+  if (t->sup_page_table != NULL)
+    hash_destroy (t->sup_page_table, &sup_page_table_action_func); 
+
   // If parent is waiting on this thread to finish, unblock the parent
   if (t->parent != NULL) {
     lock_acquire(&t->parent->wait_lock);
@@ -260,8 +263,6 @@ process_exit (void)
       sema_up (&t->parent->child_wait_sema);
     lock_release(&t->parent->wait_lock);
   }
-
-  hash_destroy (t->sup_page_table, &sup_page_table_action_func); 
 
   uint32_t *pd;
 
@@ -612,6 +613,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
       upage += PGSIZE;
+      ofs += page_read_bytes;
     }
   return true;
 }

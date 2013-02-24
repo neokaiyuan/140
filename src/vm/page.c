@@ -40,7 +40,7 @@ page_init ()
 /* map a page to user virtual memory, but not physical memory */
 void
 page_add_entry (struct hash *sup_page_table, void *upage, void *kpage,
-                   int page_type, int page_loc, int swap_index, 
+                   int page_type, int page_loc, int swap_page_index, 
                    int page_read_bytes, struct file *file, int file_offset, 
                    bool zeroed, bool writable)
 {
@@ -54,7 +54,7 @@ page_add_entry (struct hash *sup_page_table, void *upage, void *kpage,
   entry->kpage = kpage;
   entry->page_type = page_type;
   entry->page_loc = page_loc;
-  entry->swap_page_index = swap_index;
+  entry->swap_page_index = swap_page_index;
   entry->page_read_bytes = page_read_bytes;
   entry->file = file;
   entry->file_offset = file_offset;
@@ -116,12 +116,13 @@ void *
 page_map (void *upage, bool pinned)
 {
   struct thread *t = thread_current ();
-  void *kpage;
   lock_acquire (&t->sup_page_table_lock);
-
-  upage -= (unsigned) upage % PGSIZE;
+  
+  upage -= (unsigned) upage % PGSIZE; 
+  //upage = pg_round_down (upage);
   struct sup_page_entry *entry = get_sup_page_entry (t, upage);  
 
+  void *kpage = NULL;
   if (entry->page_loc == UNMAPPED) {
     kpage = frame_add (t, upage, entry->zeroed, pinned);
     if (kpage == NULL) {
@@ -130,13 +131,14 @@ page_map (void *upage, bool pinned)
     
     entry->kpage = kpage;
     entry->page_loc = MAIN_MEMORY;
-    bool check = pagedir_set_page (t->pagedir, upage, kpage, entry->writable);
-    ASSERT (check);
+    pagedir_set_page (t->pagedir, upage, kpage, entry->writable);
+    //char buf[] = "Should be writable";
+    //memcpy (upage, buf, 10);
 
     if (entry->page_type == _FILE || entry->page_type == _EXEC){
       lock_acquire (&filesys_lock);
-      file_read_at (entry->file, upage, entry->page_read_bytes, entry->file_offset);
-      memset (upage + entry->page_read_bytes, 0, PGSIZE - entry->page_read_bytes);
+      file_read_at (entry->file, kpage, entry->page_read_bytes, entry->file_offset);
+      memset (kpage + entry->page_read_bytes, 0, PGSIZE - entry->page_read_bytes);
       lock_release (&filesys_lock);
     }
   
@@ -155,7 +157,7 @@ unmap (struct thread *t, struct sup_page_entry *entry)
     if (entry->page_type == _FILE && entry->writable && 
         pagedir_is_dirty (t->pagedir, entry->upage)) {
       lock_acquire (&filesys_lock);
-      file_write_at (entry->file, entry->upage, PGSIZE, entry->file_offset);
+      file_write_at (entry->file, entry->kpage, PGSIZE, entry->file_offset);
       lock_release (&filesys_lock);
     }
     frame_remove (entry->kpage); 
@@ -183,8 +185,10 @@ page_unmap_via_entry (struct thread *t, struct sup_page_entry *entry)
   lock_acquire (&t->sup_page_table_lock);
 
   unmap (t, entry);
+//  palloc_free_page (entry->kpage);
+ // pagedir_clear_page (t->pagedir, entry->upage);
 
-  lock_release (&filesys_lock);
+  lock_release (&t->sup_page_table_lock);
 }
 
 // WE NEED TO CREATE PAGE_REMOVE_MAPPING AND PAGE_REMOVE_ENTRY

@@ -38,8 +38,8 @@ frame_add (struct thread *thread, void *upage, bool zero_page, bool pinned)
 {
   lock_acquire (&frame_table_lock);
 
-  void *kpage = zero_page ? palloc_get_page (PAL_USER) 
-                          : palloc_get_page (PAL_USER | PAL_ZERO); 
+  void *kpage = zero_page ? palloc_get_page (PAL_USER | PAL_ZERO) 
+                          : palloc_get_page (PAL_USER); 
   if (kpage == NULL) {
     //Will implemenent swping to swp disk here
     ASSERT(true);
@@ -56,13 +56,13 @@ frame_add (struct thread *thread, void *upage, bool zero_page, bool pinned)
 void
 frame_remove (void *kpage)
 {
-  lock_acquire (&frame_table_lock);
+  //lock_acquire (&frame_table_lock);
 
   struct frame_entry *entry = kpage_to_frame_entry (kpage);
-  palloc_free_page (entry->upage);
+  //palloc_free_page (kpage);
   entry->upage = entry->thread = NULL;
 
-  lock_release (&frame_table_lock);
+  //lock_release (&frame_table_lock);
 }
 
 /*
@@ -89,7 +89,7 @@ void
 frame_pin_memory (void *upage, int length)
 {
   lock_acquire (&frame_table_lock);
-  int i = 0;
+
   int first_page_offset = (unsigned) upage % PGSIZE;
   change_pin_status (true, upage);
   length -= (PGSIZE - first_page_offset);
