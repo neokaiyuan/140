@@ -185,8 +185,6 @@ page_unmap_via_entry (struct thread *t, struct sup_page_entry *entry)
   lock_acquire (&t->sup_page_table_lock);
 
   unmap (t, entry);
-//  palloc_free_page (entry->kpage);
- // pagedir_clear_page (t->pagedir, entry->upage);
 
   lock_release (&t->sup_page_table_lock);
 }

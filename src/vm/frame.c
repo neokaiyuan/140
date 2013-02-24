@@ -56,13 +56,12 @@ frame_add (struct thread *thread, void *upage, bool zero_page, bool pinned)
 void
 frame_remove (void *kpage)
 {
-  //lock_acquire (&frame_table_lock);
+  lock_acquire (&frame_table_lock);
 
   struct frame_entry *entry = kpage_to_frame_entry (kpage);
-  //palloc_free_page (kpage);
   entry->upage = entry->thread = NULL;
 
-  //lock_release (&frame_table_lock);
+  lock_release (&frame_table_lock);
 }
 
 /*

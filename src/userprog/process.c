@@ -53,8 +53,9 @@ process_execute (const char *file_name)
 static void
 setup_user_stack (void **esp, char **args, char *file_name)
 {
-//  char *buf[PGSIZE/2];
-  char **buf = palloc_get_page(0);
+  //SHOULD WE EVEN BE PALLOCING HERE?
+  char *buf[PGSIZE / 2];
+  //char **buf = palloc_get_page(0);
   buf[0] = file_name;
 
   /* parse arguments into local buffer */
@@ -101,7 +102,7 @@ setup_user_stack (void **esp, char **args, char *file_name)
   *esp -= sizeof(void *);
   memset(*esp, 0, sizeof(void *));
   
-  palloc_free_page(buf);
+  //palloc_free_page(buf);
 }
 
 /* A thread function that loads a user process and starts it
@@ -253,9 +254,6 @@ process_exit (void)
 
   printf ("%s: exit(%d)\n", t->name, t->exit_status);
 
-  if (t->sup_page_table != NULL)
-    hash_destroy (t->sup_page_table, &sup_page_table_action_func); 
-
   // If parent is waiting on this thread to finish, unblock the parent
   if (t->parent != NULL) {
     lock_acquire(&t->parent->wait_lock);
@@ -263,6 +261,9 @@ process_exit (void)
       sema_up (&t->parent->child_wait_sema);
     lock_release(&t->parent->wait_lock);
   }
+
+  if (t->sup_page_table != NULL)
+    hash_destroy (t->sup_page_table, &sup_page_table_action_func); 
 
   uint32_t *pd;
 
