@@ -36,16 +36,25 @@ struct sup_page_entry {
   bool writable;
 };
 
+/* Initializing the supp page table */
 struct hash *page_init (void);
+
+/* Adding and removing entries in the supplemental page table */
 void page_add_entry (struct hash *sup_page_table, void *upage, void *kpage,
                      int page_type, int page_loc, int swap_index, 
                      int page_read_bytes, struct file *file, 
                      int file_offset, bool zeroed, bool writable);
 void page_remove_entry (void *upage);
+
+/*Mapping or unmapping a uaddr, this must already have a valid entry in the
+  supp page table */
 void *page_map (void *upage, bool pinned);
 void page_unmap_via_entry (struct thread *t, struct sup_page_entry *entry);
 void page_unmap_via_upage (struct thread *t, void *upage);
-bool page_entry_present (struct thread *t, void *upage);
+
+/* Checking the status of pages */
+bool page_entry_present (struct thread *t, const void *upage);
+bool page_writable (struct thread *t, const void *upage);
 
 //void page_evict();
 #endif

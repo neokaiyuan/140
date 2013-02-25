@@ -216,7 +216,8 @@ page_unmap_via_upage (struct thread *t, void *upage)
 }
 
 bool
-page_entry_present (struct thread *t, void *upage) {
+page_entry_present (struct thread *t, const void *upage)
+{
   lock_acquire (&t->sup_page_table_lock);
 
   upage -= (unsigned) upage % PGSIZE; 
@@ -226,4 +227,16 @@ page_entry_present (struct thread *t, void *upage) {
 
   if (entry == NULL) return false;
   return true;
+}
+bool page_writable (struct thread *t, const void *upage) 
+{
+
+  lock_acquire (&t->sup_page_table_lock);
+
+  upage -= (unsigned) upage % PGSIZE; 
+  struct sup_page_entry *entry = get_sup_page_entry (t, upage);  
+  bool page_writable = entry->writable;
+
+  lock_release (&t->sup_page_table_lock);
+  return page_writable;
 }

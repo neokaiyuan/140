@@ -15,7 +15,7 @@
 #include "vm/page.h"
 
 static void syscall_handler (struct intr_frame *);
-static bool mem_valid (const void *ptr, int size);
+static bool mem_valid (const void *ptr, int size, bool write);
 static bool str_valid (const char *ptr);
 static void *get_arg_n (int arg_num, void *esp);
 static void halt (void) NO_RETURN;
@@ -46,7 +46,7 @@ static void
 syscall_handler (struct intr_frame *f) 
 {
   void *esp = f->esp;
-  if (!mem_valid ((const void *) esp, sizeof(int))) { 
+  if (!mem_valid ((const void *) esp, sizeof(int), false)) { 
     exit(-1);
   }
 
@@ -109,8 +109,13 @@ syscall_handler (struct intr_frame *f)
   }
 }
 
+/*
+  1) Check if memory should be brought in 
+  2) Check if the memory can be written too, written to?
+*/
+
 static bool
-mem_valid (const void *ptr, int size) 
+mem_valid (const void *ptr, int size, bool write) 
 {
   if (ptr == NULL || ptr >= PHYS_BASE) 
     return false;
@@ -126,8 +131,15 @@ mem_valid (const void *ptr, int size)
 
   int i;
   for (i = 0; i < pages_in_between + 1; i++) {
-    if (pagedir_get_page (thread_current()->pagedir, curr_page) == NULL)
-      return false;
+    struct thread *t = thread_current();
+    /*If it is not mapped see if it is a page of memory that is valid */
+    if (pagedir_get_page (t->pagedir, curr_page) == NULL) {
+      if (write && !page_writable (t, curr_page))
+        return false;
+      if (!page_entry_present (t, curr_page))
+        return false;
+      page_map (curr_page, false);  //CHANGE FOR EVICTION!!!!!!!!!!!! PIN IT THEN
+    }
     curr_page += PGSIZE;
   }
 
@@ -156,7 +168,7 @@ static bool str_valid (const char *ptr) {
 static void *
 get_arg_n (int arg_num, void *esp) {
   void *arg_addr = esp + sizeof(char *) * arg_num;
-  if (!mem_valid (arg_addr, sizeof(char *)))
+  if (!mem_valid (arg_addr, sizeof(char *), false))
     exit(-1);
   return arg_addr;
 }
@@ -270,7 +282,7 @@ read (int fd, void *buffer, unsigned length)
       (t->file_ptrs[fd] == NULL && fd != 0))
     exit(-1);
 
-  if (!mem_valid(buffer, length)) 
+  if (!mem_valid(buffer, length, false)) 
     exit(-1);
 
   if (length == 0)
@@ -302,7 +314,7 @@ write (int fd, const void *buffer, unsigned length)
       (t->file_ptrs[fd] == NULL && fd != 1))
     exit(-1);   
   
-  if (!mem_valid(buffer, length))
+  if (!mem_valid(buffer, length, true))
     exit(-1);
 
   if (length == 0) 
