@@ -118,7 +118,7 @@ user_addr_valid (void *addr, struct intr_frame *f)
   if (addr == NULL || addr >= PHYS_BASE) 
     return false;
   if (addr >= PHYS_BASE - STACK_SIZE_LIMIT && addr < f->esp &&
-      addr != f->esp - 8 && addr != f->esp - 32)  // invalid stack memory
+      addr != f->esp - 4 && addr != f->esp - 32)  // invalid stack memory
     return false;
   return true;
 }
@@ -173,7 +173,7 @@ page_fault (struct intr_frame *f)
                       UNMAPPED, -1, -1, NULL, -1, true, true);
     }
     // MAY NEED TO PIN THIS
-    page_map (pg_round_down(fault_addr), false);
+    page_map (pg_round_down (fault_addr), false);
   } else {
     /* To implement virtual memory, delete the rest of the function
       body, and replace it with code that brings in the page to

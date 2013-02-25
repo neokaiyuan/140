@@ -33,6 +33,7 @@ file_open (struct inode *inode)
     }
 }
 
+
 /* Opens and returns a new file for the same inode as FILE.
    Returns a null pointer if unsuccessful. */
 struct file *
@@ -165,4 +166,11 @@ file_tell (struct file *file)
 {
   ASSERT (file != NULL);
   return file->pos;
+}
+
+/* Returns if a given file * is writable */
+bool 
+file_writable (struct file *file) 
+{
+  return !file->deny_write;
 }

@@ -32,6 +32,12 @@ typedef int tid_t;
 
 #define MAX_FD_INDEX 129                /* maximum possible fd value */
 
+/* Struct which stores mmapped file information */
+struct mmap_entry {
+  void *addr;
+  int length;
+};
+
 /* A kernel thread or user process.
 
    Each thread structure is stored in its own 4 kB page.  The
@@ -136,10 +142,15 @@ struct thread
     int next_open_file_index;
 
     struct lock wait_lock;               /* used to prevent race conditions in syscall wait */
+
    /* Project three additions */
     struct lock sup_page_table_lock;
     struct hash *sup_page_table;
+    struct mmap_entry mmap_files[MAX_FD_INDEX + 1]; // mmap_ids = fds
+    void *exec_addr;                      // look in load_segment
+    int exec_length;
   };
+
 
 struct exit_info
 {

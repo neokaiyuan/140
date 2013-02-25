@@ -517,7 +517,7 @@ validate_segment (const struct Elf32_Phdr *phdr, struct file *file)
     return false; 
 
   /* p_offset must point within FILE. */
-  int length =  file_length (file);
+  int length = file_length (file);
   if (phdr->p_offset > (Elf32_Off) length ) 
     return false;
 
@@ -574,8 +574,19 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
   ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
   ASSERT (pg_ofs (upage) == 0);
   ASSERT (ofs % PGSIZE == 0);
-  
-  //file_seek (file, ofs);
+ // execsize += read_bytes (rounded to nearest page); 
+
+  struct thread *t = thread_current ();
+  /* Store first uaddr of executable */
+  if (t->exec_addr == NULL) {
+    t->exec_addr = upage;
+    t->exec_length = 0;
+  }
+  if (read_bytes % PGSIZE > 0) 
+    t->exec_length += (read_bytes / PGSIZE + 1) * PGSIZE;
+  else
+    t->exec_length += read_bytes;
+
   while (read_bytes > 0 || zero_bytes > 0) 
     {
       /* Calculate how to fill this page.
@@ -585,7 +596,6 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
       /* Store sup table page entry, does not actually allocate memory */
-      struct thread *t = thread_current ();
       page_add_entry (t->sup_page_table, upage, NULL, _EXEC, UNMAPPED, -1, 
                       page_read_bytes, file, ofs, false, writable);
 

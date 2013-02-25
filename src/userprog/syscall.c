@@ -12,6 +12,7 @@
 #include "threads/vaddr.h"
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
+#include "vm/page.h"
 
 static void syscall_handler (struct intr_frame *);
 static bool mem_valid (const void *ptr, int size);
@@ -30,6 +31,8 @@ static int write (int fd, const void *buffer, unsigned length);
 static void seek (int fd, unsigned position);
 static unsigned tell (int fd);
 static void close (int fd);
+static mapid_t mmap (int fd, void *addr);
+static void munmap (mapid_t mapping);
 
 #define MAX_WRITE_SIZE 500
 
@@ -93,6 +96,12 @@ syscall_handler (struct intr_frame *f)
       break;
     case SYS_CLOSE:
       close (*(int *) get_arg_n(1, esp));
+      break;
+    case SYS_MMAP:
+      mmap (* (int *) get_arg_n(1, esp), *(void **) get_arg_n(2, esp));
+      break;
+    case SYS_MUNMAP:
+      munmap ( * (mapid_t *) get_arg_n(1, esp));
       break;
     default:
       ASSERT (false);
@@ -232,7 +241,7 @@ open (const char *file)
   while (t->file_ptrs[new_index] != NULL && new_index != MAX_FD_INDEX)
     new_index++;
   if (new_index == MAX_FD_INDEX) 
-    t->next_open_file_index = MAX_FD_INDEX+1; //Sentinel for no free fd
+    t->next_open_file_index = MAX_FD_INDEX+1; // Sentinel for no free fd
   else 
     t->next_open_file_index = new_index; 
 
@@ -362,5 +371,124 @@ close (int fd)
   t->file_ptrs[fd] = NULL;
   t->next_open_file_index = fd;
 }
+static bool
+virt_mem_free (int fd, void *addr)
+{
+  struct thread *t = thread_current();
+
+  void *new_begin = addr;
+  void *new_end = pg_round_up ((void *) ((unsigned) new_begin + 
+                                     file_length (t->file_ptrs[fd])));
+
+  void *stack_boundary = PHYS_BASE - STACK_SIZE_LIMIT;
+  if (new_end >= stack_boundary)
+    return false;
+
+  /* Check for overlap with other mmap files */
+  int i;
+  for (i = 0; i <= MAX_FD_INDEX; i++) {
+    /* If there is a mmapped file */
+    if (t->mmap_files[i].addr != NULL) {
+      void *old_begin = t->mmap_files[i].addr;
+      void *old_end = pg_round_up ((void *) ((unsigned) old_begin + 
+                                   t->mmap_files[i].length));
+      if ((new_begin >= old_begin && new_begin < old_end) ||
+          (new_end >= old_begin && new_end < old_end))
+        return false;
+    }
+  }
+
+  /* Now check to make sure it does not overlap with the executable */
+  void *exec_begin = t->exec_addr;
+  void *exec_end = pg_round_up ((void *) ((unsigned) exec_begin + 
+                                     t->exec_length));
+  if ((new_begin >= exec_begin && new_begin < exec_end) ||
+      (new_end >= exec_begin && new_end < exec_end))
+    return false;
+
+  return true;
+}
+
+static mapid_t
+mmap (int fd, void *addr) 
+{
+  struct thread *t = thread_current ();
+
+  if (fd == 0 || fd == 1 || fd >= MAX_FD_INDEX + 1 || 
+      t->file_ptrs[fd] == NULL || t->mmap_files[fd].addr != NULL) // maybe
+    return -1;
+  
+  struct file *file = t->file_ptrs[fd];
+  off_t length = file_length (file); 
+  if (length == 0) 
+    return -1;
+ 
+  if (addr == 0 || (unsigned) addr % PGSIZE != 0)
+    return -1;
+  
+  if (!virt_mem_free (fd, addr))
+    return -1;
+
+  int read_bytes = length;
+  int zero_bytes = PGSIZE - length % PGSIZE;
+  void *upage = addr;
+  int offset = 0;
+  bool writable = file_writable (file);
+
+  while (read_bytes > 0 || zero_bytes > 0)
+    {
+      size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+      size_t page_zero_bytes = PGSIZE - page_read_bytes;
+
+      page_add_entry (t->sup_page_table, upage, NULL, _FILE, UNMAPPED, -1, 
+                      page_read_bytes, file, offset, false, writable);
+      read_bytes -= page_read_bytes;
+      zero_bytes -= page_zero_bytes;
+      upage += PGSIZE;
+      offset += page_read_bytes;
+    }
+
+  t->mmap_files[fd].addr = addr;
+  t->mmap_files[fd].length = length;
+  return fd;
+}
+
+static void
+munmap (mapid_t mapping)
+{
+  struct thread *t = thread_current ();
+
+  if (mapping == 0 || mapping == 1 || mapping >= MAX_FD_INDEX + 1 || 
+      t->mmap_files[mapping].addr == NULL)
+    return;
+  
+  
+  void *uaddr_start = t->mmap_files[mapping].addr;
+  void *uaddr_end = pg_round_up ((void *) ((unsigned) uaddr_start +
+                                 t->mmap_files[mapping].length));
+
+  void *curr_addr = uaddr_start;
+  while (curr_addr < uaddr_end) {
+    page_unmap_via_upage (t, curr_addr);
+    page_remove_entry (curr_addr);
+    curr_addr += PGSIZE;
+  }
+  t->mmap_files[mapping].addr = NULL;
+  t->mmap_files[mapping].length = 0;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 

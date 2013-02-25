@@ -118,6 +118,7 @@ page_map (void *upage, bool pinned)
 {
   struct thread *t = thread_current ();
   lock_acquire (&t->sup_page_table_lock);
+
   upage -= (unsigned) upage % PGSIZE; 
   struct sup_page_entry *entry = get_sup_page_entry (t, upage);  
 
@@ -126,7 +127,7 @@ page_map (void *upage, bool pinned)
   if (entry->page_loc == UNMAPPED) {
     kpage = frame_add (t, upage, entry->zeroed, pinned);
     if (kpage == NULL) {
-      // NOT YET IMPLEMENTED
+      // EVICT (will return frame) & INSERT NEW PAGE
     }
     
     /* Add our new mapping of uaddr to kaddr to our pagedirectory */ 
@@ -143,9 +144,10 @@ page_map (void *upage, bool pinned)
     }
   
   } else if (entry->page_loc == SWAP_DISK) {
-    /* If the page we want is currently on swp, bring it into memory via
-       eviction */
-   //NOT YET IMPLEMENTED
+    kpage = frame_add (t, upage, entry->zeroed, pinned);
+    if (kpage == NULL) {
+      // EVICT (will return frame) & INSERT PAGE ON SWAP
+    }
   }
 
   lock_release (&t->sup_page_table_lock);
