@@ -233,9 +233,11 @@ bool page_writable (struct thread *t, const void *upage)
 
   lock_acquire (&t->sup_page_table_lock);
 
+  bool page_writable = false;
   upage -= (unsigned) upage % PGSIZE; 
   struct sup_page_entry *entry = get_sup_page_entry (t, upage);  
-  bool page_writable = entry->writable;
+  if (entry != NULL) 
+     page_writable = entry->writable;
 
   lock_release (&t->sup_page_table_lock);
   return page_writable;
