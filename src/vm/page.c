@@ -4,6 +4,7 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "threads/malloc.h"
+#include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/pagedir.h"
@@ -117,24 +118,23 @@ page_map (void *upage, bool pinned)
 {
   struct thread *t = thread_current ();
   lock_acquire (&t->sup_page_table_lock);
-  
   upage -= (unsigned) upage % PGSIZE; 
-  //upage = pg_round_down (upage);
   struct sup_page_entry *entry = get_sup_page_entry (t, upage);  
 
   void *kpage = NULL;
+  /* If our entry is unmapped, map it to a physical frame */
   if (entry->page_loc == UNMAPPED) {
     kpage = frame_add (t, upage, entry->zeroed, pinned);
     if (kpage == NULL) {
-      // evict something
+      // NOT YET IMPLEMENTED
     }
     
+    /* Add our new mapping of uaddr to kaddr to our pagedirectory */ 
     entry->kpage = kpage;
     entry->page_loc = MAIN_MEMORY;
     pagedir_set_page (t->pagedir, upage, kpage, entry->writable);
-    //char buf[] = "Should be writable";
-    //memcpy (upage, buf, 10);
-
+    
+    /* If this page is a file or exxecutable, write the data in from disk */
     if (entry->page_type == _FILE || entry->page_type == _EXEC){
       lock_acquire (&filesys_lock);
       file_read_at (entry->file, kpage, entry->page_read_bytes, entry->file_offset);
@@ -143,7 +143,9 @@ page_map (void *upage, bool pinned)
     }
   
   } else if (entry->page_loc == SWAP_DISK) {
-    // Related to evict
+    /* If the page we want is currently on swp, bring it into memory via
+       eviction */
+   //NOT YET IMPLEMENTED
   }
 
   lock_release (&t->sup_page_table_lock);
@@ -153,29 +155,36 @@ page_map (void *upage, bool pinned)
 static void 
 unmap (struct thread *t, struct sup_page_entry *entry)
 {
+  pagedir_clear_page (t->pagedir, entry->upage);
+  bool is_dirty = pagedir_is_dirty (t->pagedir, entry->upage);
+
+  /* If the page being unmapped is in main memory */
   if (entry->page_loc == MAIN_MEMORY) {
+    /* If the page is part of a file that is writable */
     if (entry->page_type == _FILE && entry->writable && 
-        pagedir_is_dirty (t->pagedir, entry->upage)) {
+        is_dirty) {
       lock_acquire (&filesys_lock);
       file_write_at (entry->file, entry->kpage, PGSIZE, entry->file_offset);
       lock_release (&filesys_lock);
     }
+    /* Remove association with frame table if was in main memory */ 
     frame_remove (entry->kpage); 
 
   } else if (entry->page_loc == SWAP_DISK) {
-
+    /*Case where file being unmapped is on swap */
     if (entry->page_type == _FILE && entry->writable &&
-        pagedir_is_dirty (t->pagedir, entry->upage)) {
+        is_dirty) {
+      /* If this page is a file and on swp and writable, write if rom
+         swap and back to disk  */
       lock_acquire (&filesys_lock);
-
-      char buffer[PGSIZE];
+      char *buffer = palloc_get_page (0);
       read_page_from_disk (block_get_role (BLOCK_SWAP), entry->swap_page_index,
                            buffer);
       file_write_at (entry->file, buffer, PGSIZE, entry->file_offset);      
-
+      palloc_free_page (buffer);
       lock_release (&filesys_lock);
     }
-    //Remove from swap disk
+    //Remove from swap disk here
   }
 }
 

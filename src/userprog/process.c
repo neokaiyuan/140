@@ -53,9 +53,8 @@ process_execute (const char *file_name)
 static void
 setup_user_stack (void **esp, char **args, char *file_name)
 {
-  //SHOULD WE EVEN BE PALLOCING HERE?
-  char *buf[PGSIZE / 2];
-  //char **buf = palloc_get_page(0);
+  // need to palloc so we don't overewrite stack
+  char **buf = palloc_get_page(0);
   buf[0] = file_name;
 
   /* parse arguments into local buffer */
@@ -102,7 +101,7 @@ setup_user_stack (void **esp, char **args, char *file_name)
   *esp -= sizeof(void *);
   memset(*esp, 0, sizeof(void *));
   
-  //palloc_free_page(buf);
+  palloc_free_page(buf);
 }
 
 /* A thread function that loads a user process and starts it
@@ -218,6 +217,7 @@ void
 process_exit (void)
 {
   struct thread *t = thread_current ();
+
   while (!list_empty (&t->children_exit_info)) {
     struct list_elem *elem = list_pop_front (&t->children_exit_info);
     struct exit_info *child_info = list_entry (elem, struct exit_info, elem);
@@ -584,32 +584,11 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
       size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
       size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-      /* Get a page of memory. */
+      /* Store sup table page entry, does not actually allocate memory */
       struct thread *t = thread_current ();
       page_add_entry (t->sup_page_table, upage, NULL, _EXEC, UNMAPPED, -1, 
                       page_read_bytes, file, ofs, false, writable);
-      //uint8_t *kpage = frame_add (thread_current(), upage, false);
-      //uint8_t *kpage = palloc_get_page (PAL_USER);
-      /*if (kpage == NULL)
-        return false;
-      */
-      /* Load this page. */
-      /*int num_bytes = file_read (file, kpage, page_read_bytes);
-      if (num_bytes != (int) page_read_bytes)
-        {
-          page_remove (t->sup_page_table, upage);
-          //palloc_free_page (kpage);
-          return false; 
-        }*/
-      //memset (kpage + page_read_bytes, 0, page_zero_bytes);
 
-      /* Add the page to the process's address space. */
-      /*if (!install_page (upage, kpage, writable)) 
-        {
-          page_remove (t->sup_page_table, upage);
-          return false; 
-        }
-*/
       /* Advance. */
       read_bytes -= page_read_bytes;
       zero_bytes -= page_zero_bytes;
@@ -625,29 +604,23 @@ static bool
 setup_stack (void **esp) 
 {
   uint8_t *kpage;
-  //bool success = false;
-
   struct thread *t = thread_current ();
-  if (page_entry_present (t, PHYS_BASE - PGSIZE)) return false;
+
+  /* If an entry already exists, return false and thereby panic */
+  if (page_entry_present (t, PHYS_BASE - PGSIZE)) 
+    return false;
+
+  /* Add an entry to the supplemental table for this first stack page */
   page_add_entry (t->sup_page_table, PHYS_BASE - PGSIZE, NULL, _STACK,
                   UNMAPPED, -1, -1, NULL, -1, true, true);
+
+  /* Allocate memory and map it to this user vaddr */
   kpage = page_map (PHYS_BASE - PGSIZE, true); 
   ASSERT (kpage != NULL);
+  
+  /* Set our pointer to PHYS_BASE which is above our newly palloced page */
   *esp = PHYS_BASE;
   return true;
-/*
-  if (kpage != NULL) 
-    {
-      success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
-      if (success) {
-        *esp = PHYS_BASE;
-      } else {
-        page_unmap_via_upage (t, PHYS_BASE - PGSIZE);
-        page_remove_entry (PHYS_BASE - PGSIZE);
-      }
-    }
-  return success;
-  */
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel

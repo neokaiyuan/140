@@ -571,7 +571,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->pid_waiting_on = NOBODY;
   t->my_exec = NULL;
   lock_init(&t->wait_lock);
-//CHANGE
+
   /* the following for project 3 */
   lock_init (&t->sup_page_table_lock);
   if (t != initial_thread ) {
