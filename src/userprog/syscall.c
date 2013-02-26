@@ -117,10 +117,20 @@ is_lazy_memory (const void *upage, bool write)
 
   if (!page_entry_present (t, upage))
     return false;
-  if (write && !page_writable (t, upage))
-    return false;
 
   return true;
+}
+
+static bool
+is_stack_growth (const void *upage)
+{
+  struct thread *t = thread_current ();
+
+  if (upage == t->stack - 4 || upage == t->stack - 32 ||
+      (upage >= f->esp && upage < PHYS_BASE))
+    return true;
+
+  return false;
 }
 
 static bool
@@ -137,10 +147,12 @@ map_and_pin (const void *upage, bool write)
     if (!frame_pin (upage))   // returns false if just evicted
       page_map (upage, true);
   }
-  if (write) {
-    if (!page_writable (t, upage))
+
+  /* Change if this page is writable */
+  if (write && !page_writable (t, upage))
       return false;
   }
+
   return true;
 }
 
