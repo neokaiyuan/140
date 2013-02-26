@@ -149,6 +149,7 @@ struct thread
     struct mmap_entry mmap_files[MAX_FD_INDEX + 1]; // mmap_ids = fds
     void *exec_addr;                      // look in load_segment
     int exec_length;
+    void *esp;
   };
 
 

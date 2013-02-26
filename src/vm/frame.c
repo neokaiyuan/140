@@ -45,7 +45,7 @@ kpage_to_frame_entry (void *kpage)
 
 /* allocates page in physical memory for a specific thread's virtual memory */
 void *
-frame_add (struct thread *thread, void *upage, bool zero_page, bool pinned) 
+frame_add (struct thread *thread, const void *upage, bool zero_page, bool pinned) 
 {
   void *kpage = zero_page ? palloc_get_page (PAL_USER | PAL_ZERO) 
                           : palloc_get_page (PAL_USER); 

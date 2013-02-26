@@ -51,6 +51,8 @@ syscall_handler (struct intr_frame *f)
     exit(-1);
   }
 
+  thread_current ()->esp = esp;
+
   int status;
   int syscall_num = *(int *) esp;  
   switch (syscall_num) {
@@ -111,23 +113,11 @@ syscall_handler (struct intr_frame *f)
 }
 
 static bool
-is_lazy_memory (const void *upage, bool write)
-{
-  struct thread *t = thread_current ();
-
-  if (!page_entry_present (t, upage))
-    return false;
-
-  return true;
-}
-
-static bool
 is_stack_growth (const void *upage)
 {
   struct thread *t = thread_current ();
 
-  if (upage == t->stack - 4 || upage == t->stack - 32 ||
-      (upage >= f->esp && upage < PHYS_BASE))
+  if ((uint8_t *) upage >= t->esp && upage < PHYS_BASE) // no push/pusha
     return true;
 
   return false;
@@ -137,20 +127,28 @@ static bool
 map_and_pin (const void *upage, bool write)
 {
   struct thread *t = thread_current ();
-  /* If it is not mapped see if it is a page of memory that is valid */
-  if (pagedir_get_page (t->pagedir, upage) == NULL) {
-    if (is_lazy_memory (upage, write))  // also checks if writable
-      page_map (upage, true);
-    else
-      return false; // return false runs exit(-1), no worries over mapped data
-  } else {
-    if (!frame_pin (upage))   // returns false if just evicted
-      page_map (upage, true);
-  }
 
-  /* Change if this page is writable */
-  if (write && !page_writable (t, upage))
+  if (pagedir_get_page (t->pagedir, upage) == NULL) {
+
+    if (page_entry_present (t, upage)) {
+      if (write && !page_writable (t, upage))
+        return false;
+      page_map (upage, true);
+    } else if (is_stack_growth (upage)) {
+      page_add_entry (t->sup_page_table, upage, NULL, _STACK, UNMAPPED, -1, -1, 
+                      NULL, -1, true, true);
+      page_map (upage, true);
+    } else {
       return false;
+    }
+
+  } else {
+
+    if (write && !page_writable (t, upage))
+      return false;
+    if (!frame_pin (upage))  // returns false if just evicted
+      page_map (upage, true);
+
   }
 
   return true;
@@ -315,6 +313,22 @@ filesize (int fd)
   return length;
 }
 
+static void
+unpin_pages (void *upage, int size)
+{
+  void *last_byte = (void *) ((unsigned) upage + size)-1;
+
+  int page_num_first_byte = (unsigned) upage / PGSIZE;
+  int page_num_last_byte = (unsigned) last_byte / PGSIZE;
+  int pages_in_between = page_num_first_byte - page_num_first_byte;
+  void *curr_page = upage;
+
+  int i;
+  for (i = 0; i < pages_in_between + 1; i++) {
+    frame_unpin (upage);
+  }
+}
+
 static int
 read (int fd, void *buffer, unsigned length)
 {
@@ -344,6 +358,7 @@ read (int fd, void *buffer, unsigned length)
   int read_len = file_read (t->file_ptrs[fd], buffer, length);
   lock_release(&filesys_lock);
 
+  unpin_pages (buffer, length); // mem_valid validates and pins memory
   return read_len;
 }
 
