@@ -4,6 +4,7 @@
 #include "threads/thread.h"
 
 struct frame_entry {
+  struct lock lock;
   struct thread *thread;  // to access the thread's pagedir
   void *upage;            // to access the entry in thread's pagedir
   bool pinned;         //If true, pinned by the kernel, do not evict
@@ -12,7 +13,7 @@ struct frame_entry {
 void frame_init (size_t user_page_limit);
 void *frame_add (struct thread *thread, void *upage, bool zero_page, bool pinned);
 void frame_remove (void *kpage);
-void frame_pin_memory (void *upage, int length);
-void frame_unpin_memory (void *upage, int length);
+bool frame_pin (const void *upage);
+bool frame_unpin (void *upage);
 
 #endif

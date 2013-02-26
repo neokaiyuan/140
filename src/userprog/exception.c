@@ -172,8 +172,8 @@ page_fault (struct intr_frame *f)
       page_add_entry (t->sup_page_table, fault_addr, NULL, _STACK, 
                       UNMAPPED, -1, -1, NULL, -1, true, true);
     }
-    // MAY NEED TO PIN THIS
-    page_map (pg_round_down (fault_addr), false);
+    // pin this?
+    page_map (fault_addr, false);
   } else {
     /* To implement virtual memory, delete the rest of the function
       body, and replace it with code that brings in the page to

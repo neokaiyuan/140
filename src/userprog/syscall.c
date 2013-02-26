@@ -13,6 +13,7 @@
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
 #include "vm/page.h"
+#include "vm/frame.h"
 
 static void syscall_handler (struct intr_frame *);
 static bool mem_valid (const void *ptr, int size, bool write);
@@ -109,11 +110,40 @@ syscall_handler (struct intr_frame *f)
   }
 }
 
-/*
-  1) Check if memory should be brought in 
-  2) Check if the memory can be written too, written to?
-*/
+static bool
+is_lazy_memory (const void *upage, bool write)
+{
+  struct thread *t = thread_current ();
 
+  if (!page_entry_present (t, upage))
+    return false;
+  if (write && !page_writable (t, upage))
+    return false;
+
+  return true;
+}
+
+static bool
+map_and_pin (const void *upage, bool write)
+{
+  struct thread *t = thread_current ();
+  /* If it is not mapped see if it is a page of memory that is valid */
+  if (pagedir_get_page (t->pagedir, upage) == NULL) {
+    if (is_lazy_memory (upage, write))  // also checks if writable
+      page_map (upage, true);
+    else
+      return false; // return false runs exit(-1), no worries over mapped data
+  } else {
+    if (!frame_pin (upage))   // returns false if just evicted
+      page_map (upage, true);
+  }
+  return true;
+}
+
+/*
+  1) Check if start and end of memory is valid 
+  2) Ensure that memory is pinned in physical memory, if possible.
+*/
 static bool
 mem_valid (const void *ptr, int size, bool write) 
 {
@@ -131,24 +161,19 @@ mem_valid (const void *ptr, int size, bool write)
 
   int i;
   for (i = 0; i < pages_in_between + 1; i++) {
-    struct thread *t = thread_current();
-    /*If it is not mapped see if it is a page of memory that is valid */
-    if (pagedir_get_page (t->pagedir, curr_page) == NULL) {
-      if (write && !page_writable (t, curr_page))
-        return false;
-      if (!page_entry_present (t, curr_page))
-        return false;
-      page_map (curr_page, false);  //CHANGE FOR EVICTION!!!!!!!!!!!! PIN IT THEN
-    }
+    if (!map_and_pin (curr_page, write))
+      return false;
     curr_page += PGSIZE;
   }
 
   return true;
-}
+} 
 
-static bool str_valid (const char *ptr) {
+static bool 
+str_valid (const char *ptr) 
+{
   if (ptr == (char *) NULL || ptr >= (char *) PHYS_BASE || 
-      pagedir_get_page(thread_current()->pagedir, ptr) == NULL)
+      !map_and_pin (ptr, false))
     return false;
 
   const char *curr_byte_ptr = ptr;
@@ -159,7 +184,7 @@ static bool str_valid (const char *ptr) {
 
     if ((unsigned) curr_byte_ptr % PGSIZE == 0 &&
         (curr_byte_ptr >= (char *) PHYS_BASE || 
-        pagedir_get_page (thread_current()->pagedir, curr_byte_ptr) == NULL)) 
+        !map_and_pin (curr_byte_ptr, false))) 
       return false;
   }
   return false;   // should never get here

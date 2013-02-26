@@ -48,7 +48,7 @@ page_add_entry (struct hash *sup_page_table, void *upage, void *kpage,
   struct thread *t = thread_current ();
   lock_acquire (&t->sup_page_table_lock);
   
-  upage -= (unsigned) upage % PGSIZE;
+  upage = pg_round_down (upage); 
 
   struct sup_page_entry *entry = malloc (sizeof(struct sup_page_entry));
   entry->upage = upage;
@@ -88,7 +88,7 @@ write_page_to_disk (struct block *block, int page_index, void *buffer)
 }
 
 static struct sup_page_entry *
-get_sup_page_entry (struct thread *t, void *upage)
+get_sup_page_entry (struct thread *t, const void *upage)
 {
   struct sup_page_entry dummy;
   dummy.upage = upage;
@@ -103,7 +103,7 @@ page_remove_entry (void *upage)
   struct thread *t = thread_current ();
   lock_acquire (&t->sup_page_table_lock);
   
-  upage -= (unsigned) upage % PGSIZE;
+  upage = pg_round_down (upage); 
   struct sup_page_entry *entry = get_sup_page_entry (t, upage);  
 
   hash_delete (t->sup_page_table, &entry->elem);
@@ -112,19 +112,20 @@ page_remove_entry (void *upage)
   lock_release (&t->sup_page_table_lock);
 }
 
-/* map an address into main memory */
+/* map an address into main memory, evicting another frame if necessary */
 void *
-page_map (void *upage, bool pinned)
+page_map (const void *upage, bool pinned)
 {
   struct thread *t = thread_current ();
   lock_acquire (&t->sup_page_table_lock);
 
-  upage -= (unsigned) upage % PGSIZE; 
+  upage = pg_round_down (upage); 
   struct sup_page_entry *entry = get_sup_page_entry (t, upage);  
 
   void *kpage = NULL;
   /* If our entry is unmapped, map it to a physical frame */
   if (entry->page_loc == UNMAPPED) {
+
     kpage = frame_add (t, upage, entry->zeroed, pinned);
     if (kpage == NULL) {
       // EVICT (will return frame) & INSERT NEW PAGE
@@ -144,6 +145,7 @@ page_map (void *upage, bool pinned)
     }
   
   } else if (entry->page_loc == SWAP_DISK) {
+
     kpage = frame_add (t, upage, entry->zeroed, pinned);
     if (kpage == NULL) {
       // EVICT (will return frame) & INSERT PAGE ON SWAP
@@ -154,6 +156,8 @@ page_map (void *upage, bool pinned)
   return kpage;
 }
 
+/* helper function called by unmap wrappers 
+   frees specified page from main memory or swap */
 static void 
 unmap (struct thread *t, struct sup_page_entry *entry)
 {
@@ -190,6 +194,7 @@ unmap (struct thread *t, struct sup_page_entry *entry)
   }
 }
 
+
 void 
 page_unmap_via_entry (struct thread *t, struct sup_page_entry *entry)
 {
@@ -200,14 +205,13 @@ page_unmap_via_entry (struct thread *t, struct sup_page_entry *entry)
   lock_release (&t->sup_page_table_lock);
 }
 
-// WE NEED TO CREATE PAGE_REMOVE_MAPPING AND PAGE_REMOVE_ENTRY
 /* unmap a page from physical memory */
 void
 page_unmap_via_upage (struct thread *t, void *upage) 
 {
   lock_acquire (&t->sup_page_table_lock);
 
-  upage -= (unsigned) upage % PGSIZE; 
+  upage = pg_round_down (upage); 
   struct sup_page_entry *entry = get_sup_page_entry (t, upage);  
 
   unmap (t, entry);
@@ -220,7 +224,7 @@ page_entry_present (struct thread *t, const void *upage)
 {
   lock_acquire (&t->sup_page_table_lock);
 
-  upage -= (unsigned) upage % PGSIZE; 
+  upage = pg_round_down (upage); 
   struct sup_page_entry *entry = get_sup_page_entry (t, upage);  
 
   lock_release (&t->sup_page_table_lock);
@@ -228,13 +232,13 @@ page_entry_present (struct thread *t, const void *upage)
   if (entry == NULL) return false;
   return true;
 }
+
 bool page_writable (struct thread *t, const void *upage) 
 {
-
   lock_acquire (&t->sup_page_table_lock);
 
   bool page_writable = false;
-  upage -= (unsigned) upage % PGSIZE; 
+  upage = pg_round_down (upage); 
   struct sup_page_entry *entry = get_sup_page_entry (t, upage);  
   if (entry != NULL) 
      page_writable = entry->writable;

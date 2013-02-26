@@ -140,7 +140,7 @@ start_process (void *aux)
 
     /* load arguments onto user stack */
     setup_user_stack (&if_.esp, &save_ptr, file_name); 
-    frame_unpin_memory (PHYS_BASE - PGSIZE, PGSIZE);
+    frame_unpin (PHYS_BASE - PGSIZE);
   }
 
   /* signal parent thread to return */  

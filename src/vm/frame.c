@@ -8,6 +8,8 @@
 #include "vm/frame.h"
 
 static struct frame_entry *frame_table;
+static int num_kernel_pages;
+/* we only use this when running the clock algorithm */
 static struct lock frame_table_lock;
 
 void
@@ -19,16 +21,27 @@ frame_init (size_t user_page_limit)
   size_t user_pages = free_pages / 2;
   if (user_pages > user_page_limit)
     user_pages = user_page_limit;
+  num_kernel_pages = free_pages - user_pages;
+
   frame_table = (struct frame_entry *) malloc (sizeof(struct frame_entry) 
                                                * user_pages);
   lock_init (&frame_table_lock);
+
+  /* we use the entry->lock every time we edit the entry */
+  int i;
+  for (i = 0; i < (int) user_pages; i++) {
+    struct frame_entry *entry = &frame_table[i];
+    lock_init (&entry->lock);
+    entry->pinned = true;
+  }
 }
 
 static struct frame_entry *
 kpage_to_frame_entry (void *kpage)
 {
-  void *phys_addr = (void *) (kpage - PHYS_BASE);
+  void *phys_addr = (void *) ((unsigned) kpage - (unsigned) PHYS_BASE);
   int index = (unsigned) phys_addr / PGSIZE;
+  index -= num_kernel_pages;
   return &frame_table[index];
 }
 
@@ -36,88 +49,72 @@ kpage_to_frame_entry (void *kpage)
 void *
 frame_add (struct thread *thread, void *upage, bool zero_page, bool pinned) 
 {
-  lock_acquire (&frame_table_lock);
-
   void *kpage = zero_page ? palloc_get_page (PAL_USER | PAL_ZERO) 
                           : palloc_get_page (PAL_USER); 
   if (kpage == NULL) {
     //Will implemenent swping to swp disk here
-    ASSERT(true);
+    ASSERT (true);
   }
+
   struct frame_entry *entry = kpage_to_frame_entry (kpage);
+  lock_acquire (&entry->lock);
+
   entry->thread = thread;
   entry->upage = upage;
   entry->pinned = pinned;
 
-  lock_release (&frame_table_lock);
+  lock_release (&entry->lock);
   return kpage;
 }
 
 void
 frame_remove (void *kpage)
 {
-  lock_acquire (&frame_table_lock);
-
   struct frame_entry *entry = kpage_to_frame_entry (kpage);
+  lock_acquire (&entry->lock);
+  
   entry->upage = entry->thread = NULL;
+  entry->pinned = false;
 
-  lock_release (&frame_table_lock);
-}
-
-/*
-    This function will pin or unpin a page of memory
-    given its upage, note it assumes that the caller
-    has already acquired the frame table lock.
- */
-static void
-change_pin_status (bool pinned, void *upage) 
-{
-  struct thread *t = thread_current ();
-  void *kpage = pagedir_get_page (t->pagedir, upage);
-  ASSERT (kpage!= NULL);
-  struct frame_entry *entry = kpage_to_frame_entry (kpage);
-  entry->pinned = pinned;
+  lock_release (&entry->lock);
 }
 
 /* 
-    This function will pin memory at upage extending size bytes. This 
-    memory cannot be changed again until it is unpinned. this
-    restriction can be circumvented by a process when it exits.
+    This function will pin or unpin upage to the frame table. This 
+    memory cannot be accessed by another thread until it is unpinned. 
+    this restriction can be circumvented by a process when it exits.
+    
+    Pinning is only done in syscalls and setup_stack, not eviction.
  */
-void
-frame_pin_memory (void *upage, int length)
+static bool
+set_pin_status (const void *upage, bool pinned)
 {
-  lock_acquire (&frame_table_lock);
+  struct thread *t = thread_current();
+  void *kpage = pagedir_get_page (t->pagedir, upage);
+  if (kpage == NULL) 
+    return false;
+  
+  struct frame_entry *entry = kpage_to_frame_entry (kpage);
+  lock_acquire (&entry->lock);
 
-  int first_page_offset = (unsigned) upage % PGSIZE;
-  change_pin_status (true, upage);
-  length -= (PGSIZE - first_page_offset);
-  while (length > 0) {
-    upage += PGSIZE; 
-    change_pin_status (true, upage);
-    length -= PGSIZE;
+  if (entry->thread != thread_current()) {
+      lock_release (&entry->lock);
+      return false;
   }
 
-  lock_release (&frame_table_lock);
+  entry->pinned = pinned; 
+  lock_release (&entry->lock);
+  return true;
 }
 
-/*
-    The sister function to frame_pin_memory. Unpins a region
-    of physical memory corrosponded to by upage and extending
-    size bytes.
-*/
-void frame_unpin_memory (void *upage, int length) 
+bool
+frame_pin (const void *upage)
 {
-  lock_acquire (&frame_table_lock);
+  return set_pin_status (upage, true);
+}
 
-  int first_page_offset = (unsigned) upage % PGSIZE;
-  change_pin_status (false, upage);
-  length -= (PGSIZE - first_page_offset);
-  while (length > 0) {
-    upage += PGSIZE; 
-    change_pin_status (false, upage);
-    length -= PGSIZE;
-  }
-
-  lock_release (&frame_table_lock);
+bool
+frame_unpin (void *upage) 
+{
+  return set_pin_status (upage, false);
 }
