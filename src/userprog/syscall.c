@@ -117,7 +117,7 @@ is_stack_growth (const void *upage)
 {
   struct thread *t = thread_current ();
 
-  if ((uint8_t *) upage >= t->esp && upage < PHYS_BASE) // no push/pusha
+  if (upage >= t->esp && upage < PHYS_BASE) // no push/pusha
     return true;
 
   return false;
@@ -157,6 +157,7 @@ map_and_pin (const void *upage, bool write)
 /*
   1) Check if start and end of memory is valid 
   2) Ensure that memory is pinned in physical memory, if possible.
+// PROBLEM!! NEED TO UNPEN BEFORE RETURNING IN ALL FUNCTIONS!!!!
 */
 static bool
 mem_valid (const void *ptr, int size, bool write) 
@@ -183,6 +184,7 @@ mem_valid (const void *ptr, int size, bool write)
   return true;
 } 
 
+// PROBLEM!! NEED TO UNPEN BEFORE RETURNING IN ALL FUNCTIONS!!!!
 static bool 
 str_valid (const char *ptr) 
 {
@@ -320,12 +322,13 @@ unpin_pages (void *upage, int size)
 
   int page_num_first_byte = (unsigned) upage / PGSIZE;
   int page_num_last_byte = (unsigned) last_byte / PGSIZE;
-  int pages_in_between = page_num_first_byte - page_num_first_byte;
+  int pages_in_between = page_num_first_byte - page_num_last_byte;
   void *curr_page = upage;
 
   int i;
   for (i = 0; i < pages_in_between + 1; i++) {
-    frame_unpin (upage);
+    frame_unpin (curr_page);
+    curr_page += PGSIZE;
   }
 }
 
@@ -337,11 +340,11 @@ read (int fd, void *buffer, unsigned length)
       (t->file_ptrs[fd] == NULL && fd != 0))
     exit(-1);
 
-  if (!mem_valid(buffer, length, true)) 
-    exit(-1);
-
   if (length == 0)
     return 0;
+
+  if (!mem_valid(buffer, length, true)) 
+    exit(-1);
 
   if (fd == 0) {
     int index = 0;
@@ -351,6 +354,7 @@ read (int fd, void *buffer, unsigned length)
       memcpy (buffer + index, &c, 1);
       index++;
     }    
+    unpin_pages (buffer, length); // mem_valid validates and pins memory
     return index;
   }
 
@@ -362,6 +366,7 @@ read (int fd, void *buffer, unsigned length)
   return read_len;
 }
 
+// NEED TO PIN THE PAGES BEFORE WRITE
 static int
 write (int fd, const void *buffer, unsigned length)
 {
@@ -483,7 +488,7 @@ mmap (int fd, void *addr)
   struct thread *t = thread_current ();
 
   if (fd == 0 || fd == 1 || fd >= MAX_FD_INDEX + 1 || 
-      t->file_ptrs[fd] == NULL || t->mmap_files[fd].addr != NULL) // maybe
+      t->file_ptrs[fd] == NULL || t->mmap_files[fd].addr != NULL)
     return -1;
   
   struct file *file = t->file_ptrs[fd];

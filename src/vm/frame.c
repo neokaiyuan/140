@@ -7,17 +7,17 @@
 #include "userprog/pagedir.h"
 #include "vm/frame.h"
 
+#define FREE_PAGES_START_OFFSET 1024 * 1024
+
 static struct frame_entry *frame_table;
+static struct lock frame_table_lock;  // only used in clock algorithm
+static int max_frame_table_index;
 static int num_kernel_pages;
-/* we only use this when running the clock algorithm */
-static struct lock frame_table_lock;
-static int max_index;
-static int free_pages_phys_offst;
 
 void
 frame_init (size_t user_page_limit)
 {
-  uint8_t *free_start = ptov (1024 * 1024);
+  uint8_t *free_start = ptov (FREE_PAGES_START_OFFSET);
   uint8_t *free_end = ptov (init_ram_pages * PGSIZE);
   size_t free_pages = (free_end - free_start) / PGSIZE;
   size_t user_pages = free_pages / 2;
@@ -25,7 +25,6 @@ frame_init (size_t user_page_limit)
   if (user_pages > user_page_limit)
     user_pages = user_page_limit;
   num_kernel_pages = free_pages - user_pages;
-  free_pages_phys_offst = 1024 * 1024 / PGSIZE;
 
   frame_table = (struct frame_entry *) malloc (sizeof(struct frame_entry) 
                                                * user_pages);
@@ -37,14 +36,16 @@ frame_init (size_t user_page_limit)
     struct frame_entry *entry = &frame_table[i];
     lock_init (&entry->lock);
   }
-  max_index = user_pages -1;
+  max_frame_table_index = user_pages - 1;
 }
 
 static struct frame_entry *
 kpage_to_frame_entry (void *kpage)
 {
-  void *phys_addr = (void *) ((unsigned) kpage - (unsigned) PHYS_BASE);
-  int index = (unsigned) phys_addr / PGSIZE - num_kernel_pages -  free_pages_phys_offst;
+  void *phys_addr = (void *) vtop (kpage);
+  int index = (unsigned) (phys_addr - FREE_PAGES_START_OFFSET - 
+                          num_kernel_pages * PGSIZE) / PGSIZE;
+  ASSERT (index <= max_frame_table_index);
   return &frame_table[index];
 }
 
@@ -102,8 +103,8 @@ set_pin_status (const void *upage, bool pinned)
   lock_acquire (&entry->lock);
 
   if (entry->thread != thread_current()) {
-      lock_release (&entry->lock);
-      return false;
+    lock_release (&entry->lock);
+    return false;
   }
 
   entry->pinned = pinned; 

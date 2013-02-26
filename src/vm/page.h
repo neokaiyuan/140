@@ -40,8 +40,8 @@ struct sup_page_entry {
 struct hash *page_init (void);
 
 /* Adding and removing entries in the supplemental page table */
-void page_add_entry (struct hash *sup_page_table, void *upage, void *kpage,
-                     int page_type, int page_loc, int swap_index, 
+void page_add_entry (struct hash *sup_page_table, const void *upage, 
+                     void *kpage, int page_type, int page_loc, int swap_index, 
                      int page_read_bytes, struct file *file, 
                      int file_offset, bool zeroed, bool writable);
 void page_remove_entry (void *upage);

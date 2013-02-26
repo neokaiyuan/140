@@ -40,7 +40,7 @@ page_init ()
 
 /* map a page to user virtual memory, but not physical memory */
 void
-page_add_entry (struct hash *sup_page_table, void *upage, void *kpage,
+page_add_entry (struct hash *sup_page_table, const void *upage, void *kpage,
                    int page_type, int page_loc, int swap_page_index, 
                    int page_read_bytes, struct file *file, int file_offset, 
                    bool zeroed, bool writable)
