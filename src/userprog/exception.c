@@ -122,6 +122,26 @@ user_addr_valid (void *addr, struct intr_frame *f)
     return false;
   return true;
 }
+static void 
+print_and_kill (struct intr_frame *f, bool not_present, bool write, bool user,
+                void *fault_addr)
+{
+  printf ("Page fault at %p: %s error %s page in %s context.\n",
+    fault_addr,
+    not_present ? "not present" : "rights violation",
+    write ? "writing" : "reading",
+    user ? "user" : "kernel");
+  kill (f);
+}
+
+static bool
+is_stack_growth (struct intr_frame *f, void *addr)
+{
+  if (addr == f->esp - 4 || addr == f->esp - 32 ||
+      (addr >= f->esp && addr < PHYS_BASE))
+    return true;
+  return false;
+}
 
 /* Page fault handler.  This is a skeleton that must be filled in
    to implement virtual memory.  Some solutions to project 2 may
@@ -166,23 +186,19 @@ page_fault (struct intr_frame *f)
   /* Determine if a valid address if so, bring it into memory and return */
   ASSERT (user == true);
   struct thread *t = thread_current ();
-  if (user_addr_valid (fault_addr, f)) {
-    if (fault_addr == f->esp - 4 || fault_addr == f->esp - 32 || 
-        !page_entry_present (t, fault_addr)) {
-      page_add_entry (t->sup_page_table, fault_addr, NULL, _STACK, 
-                      UNMAPPED, -1, -1, NULL, -1, true, true);
-    }
-    // pin this?
+
+  if (fault_addr == NULL || fault_addr >= PHYS_BASE) 
+    print_and_kill (f, not_present, write, user, fault_addr);
+
+  if (page_entry_present (t, fault_addr)) {
+    if (write && !page_writable (t, fault_addr))
+      print_and_kill (f, not_present, write, user, fault_addr);
+    page_map (fault_addr, false);
+  } else if (is_stack_growth (f, fault_addr)) {
+    page_add_entry (t->sup_page_table, fault_addr, NULL, _STACK, 
+                    UNMAPPED, -1, -1, NULL, -1, true, true);
     page_map (fault_addr, false);
   } else {
-    /* To implement virtual memory, delete the rest of the function
-      body, and replace it with code that brings in the page to
-      which fault_addr refers. */
-    printf ("Page fault at %p: %s error %s page in %s context.\n",
-            fault_addr,
-            not_present ? "not present" : "rights violation",
-            write ? "writing" : "reading",
-            user ? "user" : "kernel");
-    kill (f);
+    print_and_kill (f, not_present, write, user, fault_addr);
   }
 }

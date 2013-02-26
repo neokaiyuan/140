@@ -137,7 +137,7 @@ page_map (const void *upage, bool pinned)
     pagedir_set_page (t->pagedir, upage, kpage, entry->writable);
     
     /* If this page is a file or exxecutable, write the data in from disk */
-    if (entry->page_type == _FILE || entry->page_type == _EXEC){
+    if (entry->page_type == _FILE || entry->page_type == _EXEC) {
       lock_acquire (&filesys_lock);
       file_read_at (entry->file, kpage, entry->page_read_bytes, entry->file_offset);
       memset (kpage + entry->page_read_bytes, 0, PGSIZE - entry->page_read_bytes);

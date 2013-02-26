@@ -32,7 +32,6 @@ frame_init (size_t user_page_limit)
   for (i = 0; i < (int) user_pages; i++) {
     struct frame_entry *entry = &frame_table[i];
     lock_init (&entry->lock);
-    entry->pinned = true;
   }
 }
 
@@ -40,8 +39,7 @@ static struct frame_entry *
 kpage_to_frame_entry (void *kpage)
 {
   void *phys_addr = (void *) ((unsigned) kpage - (unsigned) PHYS_BASE);
-  int index = (unsigned) phys_addr / PGSIZE;
-  index -= num_kernel_pages;
+  int index = (unsigned) phys_addr / PGSIZE - num_kernel_pages;
   return &frame_table[index];
 }
 
