@@ -137,6 +137,10 @@ map_and_pin (const void *upage, bool write)
     if (!frame_pin (upage))   // returns false if just evicted
       page_map (upage, true);
   }
+  if (write) {
+    if (!page_writable (t, upage))
+      return false;
+  }
   return true;
 }
 
@@ -307,7 +311,7 @@ read (int fd, void *buffer, unsigned length)
       (t->file_ptrs[fd] == NULL && fd != 0))
     exit(-1);
 
-  if (!mem_valid(buffer, length, false)) 
+  if (!mem_valid(buffer, length, true)) 
     exit(-1);
 
   if (length == 0)
@@ -339,7 +343,7 @@ write (int fd, const void *buffer, unsigned length)
       (t->file_ptrs[fd] == NULL && fd != 1))
     exit(-1);   
   
-  if (!mem_valid(buffer, length, true))
+  if (!mem_valid(buffer, length, false))
     exit(-1);
 
   if (length == 0) 
