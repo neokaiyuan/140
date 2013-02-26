@@ -11,6 +11,8 @@ static struct frame_entry *frame_table;
 static int num_kernel_pages;
 /* we only use this when running the clock algorithm */
 static struct lock frame_table_lock;
+static int max_index;
+static int free_pages_phys_offst;
 
 void
 frame_init (size_t user_page_limit)
@@ -19,9 +21,11 @@ frame_init (size_t user_page_limit)
   uint8_t *free_end = ptov (init_ram_pages * PGSIZE);
   size_t free_pages = (free_end - free_start) / PGSIZE;
   size_t user_pages = free_pages / 2;
+  
   if (user_pages > user_page_limit)
     user_pages = user_page_limit;
   num_kernel_pages = free_pages - user_pages;
+  free_pages_phys_offst = 1024 * 1024 / PGSIZE;
 
   frame_table = (struct frame_entry *) malloc (sizeof(struct frame_entry) 
                                                * user_pages);
@@ -33,13 +37,14 @@ frame_init (size_t user_page_limit)
     struct frame_entry *entry = &frame_table[i];
     lock_init (&entry->lock);
   }
+  max_index = user_pages -1;
 }
 
 static struct frame_entry *
 kpage_to_frame_entry (void *kpage)
 {
   void *phys_addr = (void *) ((unsigned) kpage - (unsigned) PHYS_BASE);
-  int index = (unsigned) phys_addr / PGSIZE - num_kernel_pages;
+  int index = (unsigned) phys_addr / PGSIZE - num_kernel_pages -  free_pages_phys_offst;
   return &frame_table[index];
 }
 
@@ -51,7 +56,7 @@ frame_add (struct thread *thread, const void *upage, bool zero_page, bool pinned
                           : palloc_get_page (PAL_USER); 
   if (kpage == NULL) {
     //Will implemenent swping to swp disk here
-    ASSERT (true);
+    ASSERT (false);
   }
 
   struct frame_entry *entry = kpage_to_frame_entry (kpage);
@@ -65,12 +70,13 @@ frame_add (struct thread *thread, const void *upage, bool zero_page, bool pinned
   return kpage;
 }
 
+/*EVICT : Should check if pinned before removing */
 void
 frame_remove (void *kpage)
 {
   struct frame_entry *entry = kpage_to_frame_entry (kpage);
   lock_acquire (&entry->lock);
-  
+ // palloc_free_page (kpage);
   entry->upage = entry->thread = NULL;
   entry->pinned = false;
 

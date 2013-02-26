@@ -128,6 +128,7 @@ page_map (const void *upage, bool pinned)
 
     kpage = frame_add (t, upage, entry->zeroed, pinned);
     if (kpage == NULL) {
+      ASSERT (false);
       // EVICT (will return frame) & INSERT NEW PAGE
     }
     
