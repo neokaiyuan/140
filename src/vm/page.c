@@ -48,12 +48,13 @@ page_add_entry (struct hash *sup_page_table, const void *upage, void *kpage,
   lock_acquire (&t->sup_page_table_lock);
   
   upage = pg_round_down (upage); 
-
+  printf ("before malloc\n");
   struct sup_page_entry *entry = malloc (sizeof(struct sup_page_entry));
+  printf ("after malloc\n");
   entry->upage = upage;
   entry->kpage = kpage;
-  entry->page_type = page_type;
   entry->page_loc = page_loc;
+  entry->page_type = page_type;
   entry->swap_index = swap_index;
   entry->page_read_bytes = page_read_bytes;
   entry->file = file;
@@ -61,7 +62,9 @@ page_add_entry (struct hash *sup_page_table, const void *upage, void *kpage,
   entry->zeroed = zeroed;
   entry->writable = writable;
 
+  printf ("before insert\n");
   hash_insert (sup_page_table, &entry->elem);
+  printf ("after insert\n");
 
   lock_release (&t->sup_page_table_lock);
 }
