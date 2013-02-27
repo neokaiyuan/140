@@ -101,7 +101,7 @@ syscall_handler (struct intr_frame *f)
       close (*(int *) get_arg_n(1, esp));
       break;
     case SYS_MMAP:
-      mmap (* (int *) get_arg_n(1, esp), *(void **) get_arg_n(2, esp));
+      f->eax = mmap (* (int *) get_arg_n(1, esp), *(void **) get_arg_n(2, esp));
       break;
     case SYS_MUNMAP:
       munmap ( * (mapid_t *) get_arg_n(1, esp));
@@ -325,8 +325,9 @@ open (const char *file)
     return -1;
   }
 
+  /* finds a next open file index */
   int new_index = 2;
-  while (t->file_ptrs[new_index] != NULL && new_index != MAX_FD_INDEX)
+  while (t->file_ptrs[new_index] != NULL && new_index < MAX_FD_INDEX)
     new_index++;
   if (new_index == MAX_FD_INDEX) 
     t->next_open_file_index = MAX_FD_INDEX+1; // Sentinel for no free fd
@@ -350,7 +351,6 @@ filesize (int fd)
 
   return length;
 }
-
 
 static int
 read (int fd, void *buffer, unsigned length)
@@ -482,13 +482,13 @@ virt_mem_free (int fd, void *addr)
 
   /* Check for overlap with other mmap files */
   int i;
-  for (i = 0; i <= MAX_FD_INDEX; i++) {
+  for (i = 2; i <= MAX_FD_INDEX; i++) {
 
     if (t->mmap_files[i].addr != NULL) {
       void *old_begin = t->mmap_files[i].addr;
       void *old_end = pg_round_up ((void *) ((unsigned) old_begin + 
                                    t->mmap_files[i].length));
-      if ((new_begin >= old_begin && new_begin < old_end) ||
+      if ((new_begin >= old_begin && new_begin < old_end) || 
           (new_end >= old_begin && new_end < old_end))
         return false;
     }
@@ -514,7 +514,7 @@ mmap (int fd, void *addr)
       t->file_ptrs[fd] == NULL || t->mmap_files[fd].addr != NULL)
     return -1;
   
-  struct file *file = file_reopen (t->file_ptrs[fd]); //Changed
+  struct file *file = file_reopen (t->file_ptrs[fd]); 
   off_t length = file_length (file); 
   if (length == 0) 
     return -1;
@@ -535,7 +535,6 @@ mmap (int fd, void *addr)
   while (read_bytes > 0 || zero_bytes > 0) {
     size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
     size_t page_zero_bytes = PGSIZE - page_read_bytes;
-
     page_add_entry (t->sup_page_table, upage, NULL, _FILE, UNMAPPED, -1, 
                     page_read_bytes, file, offset, false, writable);
     read_bytes -= page_read_bytes;
@@ -559,7 +558,6 @@ munmap (mapid_t mapping)
       t->mmap_files[mapping].addr == NULL)
     return;
   
-  
   void *uaddr_start = t->mmap_files[mapping].addr;
   void *uaddr_end = pg_round_up ((void *) ((unsigned) uaddr_start +
                                  t->mmap_files[mapping].length));
@@ -570,6 +568,7 @@ munmap (mapid_t mapping)
     page_remove_entry (curr_addr);
     curr_addr += PGSIZE;
   }
+
   t->mmap_files[mapping].addr = NULL;
   t->mmap_files[mapping].length = 0;
 }
