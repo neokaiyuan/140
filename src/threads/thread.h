@@ -150,6 +150,7 @@ struct thread
     void *exec_addr;                      // look in load_segment
     int exec_length;
     void *esp;
+    struct lock exit_lock; // used to synchronize eviction during exit 
   };
 
 

@@ -92,6 +92,46 @@ page_remove_entry (void *upage)
   lock_release (&t->sup_page_table_lock);
 }
 
+/* updates the sup page table and pagedir during eviction */
+void
+page_evict (struct thread *t, void *upage)
+{
+  if (t != thread_current ())
+    lock_acquire (&t->sup_page_table_lock);
+  pagedir_clear_page (t->pagedir, upage); // t cannot access during evict
+
+  struct sup_page_entry *entry = get_sup_page_entry (t, upage);   
+  if (entry->page_type == _STACK) {
+
+    entry->swap_index = swap_write_page (entry->kpage);
+    entry->page_loc = SWAP_DISK;
+
+  } else if (entry->page_type == _EXEC) {
+
+    if (entry->writable && pagedir_is_dirty (t->pagedir, upage)) {
+      entry->swap_index = swap_write_page (entry->kpage);
+      entry->page_loc = SWAP_DISK;
+    } else {
+      entry->page_loc = UNMAPPED;
+    }
+
+  } else {
+    
+    if (entry->writable && pagedir_is_dirty (t->pagedir, upage)) {
+      lock_acquire (&filesys_lock);
+      file_write_at (entry->file, entry->kpage, PGSIZE, entry->file_offset);
+      lock_release (&filesys_lock);
+    }
+    entry->page_loc = UNMAPPED;
+
+  }
+
+  entry->kpage = NULL;
+ 
+  if (t != thread_current ())
+    lock_release (&t->sup_page_table_lock);
+}
+
 /* map an address into main memory, evicting another frame if necessary */
 void *
 page_map (const void *upage, bool pinned)
@@ -103,20 +143,19 @@ page_map (const void *upage, bool pinned)
   struct sup_page_entry *entry = get_sup_page_entry (t, upage);  
 
   void *kpage = NULL;
-  /* If our entry is unmapped, map it to a physical frame */
+
   if (entry->page_loc == UNMAPPED) {
 
     kpage = frame_add (entry, false, pinned);
     ASSERT (kpage != NULL)
-      // EVICT (will return frame) & INSERT NEW PAGE
     
     entry->kpage = kpage;
     entry->page_loc = MAIN_MEMORY;
     pagedir_set_page (t->pagedir, upage, kpage, entry->writable);
+    if (entry->zeroed)
+      memset (entry->kpage, 0, PGSIZE);
     
-    int i = 0;
     if (entry->page_type == _FILE || entry->page_type == _EXEC) {
-      i++;
       lock_acquire (&filesys_lock);
       file_read_at (entry->file, kpage, entry->page_read_bytes,
                     entry->file_offset);
@@ -129,7 +168,7 @@ page_map (const void *upage, bool pinned)
 
     kpage = frame_add (entry, false, pinned);
     ASSERT (kpage == NULL)
-      // EVICT (will return frame) & INSERT PAGE ON SWAP
+    swap_read_page (entry->swap_index, kpage);
   }
 
   lock_release (&t->sup_page_table_lock);
@@ -145,7 +184,7 @@ unmap (struct thread *t, struct sup_page_entry *entry)
   bool is_dirty = pagedir_is_dirty (t->pagedir, entry->upage);
 
   if (entry->page_loc == MAIN_MEMORY) {
-    /* If the page is part of a file that is writable */
+
     if (entry->page_type == _FILE && entry->writable && 
         is_dirty) {
       lock_acquire (&filesys_lock);
@@ -154,7 +193,7 @@ unmap (struct thread *t, struct sup_page_entry *entry)
 
       lock_release (&filesys_lock);
     }
-    /* Remove association with frame table if was in main memory */ 
+
     frame_remove (entry->kpage); 
 
   } else if (entry->page_loc == SWAP_DISK) { // file being unmapped is on swap
@@ -179,10 +218,12 @@ unmap (struct thread *t, struct sup_page_entry *entry)
 void 
 page_unmap_via_entry (struct thread *t, struct sup_page_entry *entry)
 {
+  lock_acquire (&t->exit_lock);
   lock_acquire (&t->sup_page_table_lock);
 
   unmap (t, entry);
 
+  lock_release (&t->exit_lock);
   lock_release (&t->sup_page_table_lock);
 }
 
@@ -214,7 +255,8 @@ page_entry_present (struct thread *t, const void *upage)
   return true;
 }
 
-bool page_writable (struct thread *t, const void *upage) 
+bool 
+page_writable (struct thread *t, const void *upage) 
 {
   lock_acquire (&t->sup_page_table_lock);
 

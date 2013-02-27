@@ -23,7 +23,7 @@ frame_init (size_t user_page_limit)
   size_t free_pages = (free_end - free_start) / PGSIZE;
   num_user_pages = free_pages / 2;
   
-  if (num_user_pages > user_page_limit)
+  if ((size_t) num_user_pages > user_page_limit)
     num_user_pages = user_page_limit;
   num_kernel_pages = free_pages - num_user_pages;
 
@@ -53,10 +53,11 @@ static void *
 frame_entry_to_kpage (struct frame_entry *entry)
 {
   int index = ((unsigned) entry - (unsigned) frame_table) / 
-               sizeof (frame_entry);
+               sizeof (struct frame_entry);
   return ptov (FREE_PAGES_START_OFFSET) + (num_kernel_pages + index) * PGSIZE;
 }
 
+/* chooses frame, updates sup_page_table entries, writes data if needed */
 static void * 
 evict (void *upage, bool pinned)
 {
@@ -64,7 +65,7 @@ evict (void *upage, bool pinned)
   struct frame_entry *evict_entry = NULL;
 
   int i;
-  for (i = 0; i < CLOCK_ALG_LIMIT; i++) {
+  for (i = 0; i < CLOCK_ALG_LIMIT; i++) { // loops at most LIMIT times
 
     int j;
     for (j = 0; j < num_user_pages; j++) {
@@ -73,6 +74,8 @@ evict (void *upage, bool pinned)
         if (pagedir_is_accessed (entry->thread->pagedir, entry->upage))
           pagedir_set_accessed (entry->thread->pagedir, entry->upage, false);
         else if (entry->pinned == false) {
+          if (!lock_try_acquire (&entry->thread->exit_lock))
+            continue;
           evict_entry = entry;
           lock_release (&frame_table_lock);
           break;
@@ -81,16 +84,20 @@ evict (void *upage, bool pinned)
       }
     }
 
-    if (evict_entry != NULL) {
+    if (evict_entry != NULL) { //Need to deal with race between this and next line w/ thread_exit
+      page_evict (evict_entry->thread, evict_entry->upage);
+      lock_release (&evict_entry->thread->exit_lock);
+
       evict_entry->thread = thread_current ();
       evict_entry->upage = upage;
       evict_entry->pinned = pinned;
 
       lock_release (&evict_entry->lock);
-      return pagedir_get_page (upage);
+      return frame_entry_to_kpage (evict_entry);
     }
   }
 
+  lock_release (&frame_table_lock);
   return NULL;
 }
 
@@ -100,11 +107,11 @@ evict (void *upage, bool pinned)
 void *
 frame_add (struct sup_page_entry *page_entry, bool swap, bool pinned) 
 {
-  void *kpage = page_entry->zeroed ? palloc_get_page (PAL_USER | PAL_ZERO) 
+  void *kpage = page_entry->zeroed ? palloc_get_page (PAL_USER | PAL_ZERO)
                                    : palloc_get_page (PAL_USER); 
   if (kpage == NULL) {
-    kpage = evict();   
 
+    kpage = evict (page_entry->upage, pinned);
 
   } else {
 

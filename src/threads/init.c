@@ -101,7 +101,6 @@ main (void)
   malloc_init ();
   paging_init ();
   frame_init (user_page_limit);   // PROJECT 3
-  swap_init ();
 
   /* Segmentation. */
 #ifdef USERPROG
@@ -130,6 +129,9 @@ main (void)
   locate_block_devices ();
   filesys_init (format_filesys);
 #endif
+
+  /*Added for VM */
+  swap_init ();
 
   printf ("Boot complete.\n");
   

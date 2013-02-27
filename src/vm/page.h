@@ -46,6 +46,8 @@ void page_add_entry (struct hash *sup_page_table, const void *upage,
                      int file_offset, bool zeroed, bool writable);
 void page_remove_entry (void *upage);
 
+void page_evict (struct thread *t, void *upage);
+
 /*Mapping or unmapping a uaddr, this must already have a valid entry in the
   supp page table */
 void *page_map (const void *upage, bool pinned);

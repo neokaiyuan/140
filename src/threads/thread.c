@@ -580,6 +580,7 @@ init_thread (struct thread *t, const char *name, int priority)
     t->sup_page_table = NULL;
   }
   t->exec_addr = NULL;
+  lock_init (&t->exit_lock);
 
   t->magic = THREAD_MAGIC;
 

@@ -2,6 +2,7 @@
 #define VM_FRAME_H
 
 #include "threads/thread.h"
+#include "vm/page.h"
 
 struct frame_entry {
   struct lock lock;
