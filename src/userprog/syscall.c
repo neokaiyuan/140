@@ -154,13 +154,30 @@ map_and_pin (const void *upage, bool write)
   return true;
 }
 
+static void
+unpin_pages (const void *upage, int size)
+{
+  void *last_byte = (void *) ((unsigned) upage + size)-1;
+
+  int page_num_first_byte = (unsigned) upage / PGSIZE;
+  int page_num_last_byte = (unsigned) last_byte / PGSIZE;
+  int pages_in_between = page_num_first_byte - page_num_last_byte;
+  void *curr_page = upage;
+
+  int i;
+  for (i = 0; i < pages_in_between + 1; i++) {
+    frame_unpin (curr_page);
+    curr_page += PGSIZE;
+  }
+}
+
 /*
   1) Check if start and end of memory is valid 
   2) Ensure that memory is pinned in physical memory, if possible.
 // PROBLEM!! NEED TO UNPEN BEFORE RETURNING IN ALL FUNCTIONS!!!!
 */
 static bool
-mem_valid (const void *ptr, int size, bool write) 
+mem_valid (const void *ptr, int size, bool write)  
 {
   if (ptr == NULL || ptr >= PHYS_BASE) 
     return false;
@@ -236,9 +253,18 @@ exec (const char *file)
 
   struct thread *t = thread_current();
   pid_t pid = (pid_t) process_execute (file);
-  if (pid == TID_ERROR) return -1;
+  if (pid == TID_ERROR) {
+    unpin_pages (file, strlen(file)); // can call strlen because str_valid
+    return -1;
+  }
+
   sema_down (&t->child_exec_sema); // look at start_process
-  if (!t->child_exec_success) return -1;
+  if (!t->child_exec_success) {
+    unpin_pages (file, strlen(file));
+    return -1;
+  }
+
+  unpin_pages (file, strlen(file));
   return pid; 
 }
 
@@ -257,6 +283,8 @@ create (const char *file, unsigned initial_size)
   lock_acquire(&filesys_lock);
   bool create = filesys_create (file, initial_size);
   lock_release(&filesys_lock);
+
+  unpin_pages (file, strlen(file));
   return create;
 }
 
@@ -269,6 +297,8 @@ remove (const char *file)
   lock_acquire(&filesys_lock);
   bool remove = filesys_remove (file);
   lock_release(&filesys_lock);
+
+  unpin_pages (file, strlen(file));
   return remove;
 }
 
@@ -279,16 +309,21 @@ open (const char *file)
     exit(-1);
 
   struct thread *t = thread_current ();
-  if (t->next_open_file_index == MAX_FD_INDEX+1) 
+  if (t->next_open_file_index == MAX_FD_INDEX+1) {
+    unpin_pages (file, strlen(file));
     return -1;
+  }
+
   int new_fd = t->next_open_file_index;
 
   lock_acquire(&filesys_lock);
   t->file_ptrs[new_fd] = filesys_open (file);
   lock_release(&filesys_lock);
 
-  if (t->file_ptrs[new_fd] == NULL)
+  if (t->file_ptrs[new_fd] == NULL) {
+    unpin_pages (file, strlen(file));
     return -1;
+  }
 
   int new_index = 2;
   while (t->file_ptrs[new_index] != NULL && new_index != MAX_FD_INDEX)
@@ -298,6 +333,7 @@ open (const char *file)
   else 
     t->next_open_file_index = new_index; 
 
+  unpin_pages (file, strlen(file));
   return new_fd;
 }
 
@@ -315,33 +351,17 @@ filesize (int fd)
   return length;
 }
 
-static void
-unpin_pages (void *upage, int size)
-{
-  void *last_byte = (void *) ((unsigned) upage + size)-1;
-
-  int page_num_first_byte = (unsigned) upage / PGSIZE;
-  int page_num_last_byte = (unsigned) last_byte / PGSIZE;
-  int pages_in_between = page_num_first_byte - page_num_last_byte;
-  void *curr_page = upage;
-
-  int i;
-  for (i = 0; i < pages_in_between + 1; i++) {
-    frame_unpin (curr_page);
-    curr_page += PGSIZE;
-  }
-}
 
 static int
 read (int fd, void *buffer, unsigned length)
 {
+  if (length == 0)
+    return 0;
+
   struct thread *t = thread_current ();
   if (fd == 1 || fd >= MAX_FD_INDEX+1 || 
       (t->file_ptrs[fd] == NULL && fd != 0))
     exit(-1);
-
-  if (length == 0)
-    return 0;
 
   if (!mem_valid(buffer, length, true)) 
     exit(-1);
@@ -370,6 +390,9 @@ read (int fd, void *buffer, unsigned length)
 static int
 write (int fd, const void *buffer, unsigned length)
 {
+  if (length == 0) 
+    return 0;
+
   struct thread *t = thread_current();
   if (fd == 0 || fd >=  MAX_FD_INDEX+1 ||
       (t->file_ptrs[fd] == NULL && fd != 1))
@@ -377,9 +400,6 @@ write (int fd, const void *buffer, unsigned length)
   
   if (!mem_valid(buffer, length, false))
     exit(-1);
-
-  if (length == 0) 
-    return 0;
 
   if (fd == 1) {
     int num_writes = length / MAX_WRITE_SIZE + 1;
@@ -394,6 +414,7 @@ write (int fd, const void *buffer, unsigned length)
       num_writes--;
     }
 
+    unpin_pages (buffer, length); // mem_valid validates and pins memory
     return length;
   } 
   
@@ -401,6 +422,7 @@ write (int fd, const void *buffer, unsigned length)
   int write_len = file_write (t->file_ptrs[fd], buffer, length);
   lock_release(&filesys_lock);
 
+  unpin_pages (buffer, length); // mem_valid validates and pins memory
   return write_len;
 }
 
@@ -444,6 +466,7 @@ close (int fd)
   t->file_ptrs[fd] = NULL;
   t->next_open_file_index = fd;
 }
+
 static bool
 virt_mem_free (int fd, void *addr)
 {
@@ -460,7 +483,7 @@ virt_mem_free (int fd, void *addr)
   /* Check for overlap with other mmap files */
   int i;
   for (i = 0; i <= MAX_FD_INDEX; i++) {
-    /* If there is a mmapped file */
+
     if (t->mmap_files[i].addr != NULL) {
       void *old_begin = t->mmap_files[i].addr;
       void *old_end = pg_round_up ((void *) ((unsigned) old_begin + 
@@ -471,7 +494,7 @@ virt_mem_free (int fd, void *addr)
     }
   }
 
-  /* Now check to make sure it does not overlap with the executable */
+  /* check to make sure it does not overlap with the executable */
   void *exec_begin = t->exec_addr;
   void *exec_end = pg_round_up ((void *) ((unsigned) exec_begin + 
                                      t->exec_length));
@@ -491,7 +514,7 @@ mmap (int fd, void *addr)
       t->file_ptrs[fd] == NULL || t->mmap_files[fd].addr != NULL)
     return -1;
   
-  struct file *file = t->file_ptrs[fd];
+  struct file *file = file_reopen (t->file_ptrs[fd]); //Changed
   off_t length = file_length (file); 
   if (length == 0) 
     return -1;
@@ -499,6 +522,7 @@ mmap (int fd, void *addr)
   if (addr == 0 || (unsigned) addr % PGSIZE != 0)
     return -1;
   
+  /* checks that the required virtual memory space is free */
   if (!virt_mem_free (fd, addr))
     return -1;
 
@@ -508,21 +532,21 @@ mmap (int fd, void *addr)
   int offset = 0;
   bool writable = file_writable (file);
 
-  while (read_bytes > 0 || zero_bytes > 0)
-    {
-      size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
-      size_t page_zero_bytes = PGSIZE - page_read_bytes;
+  while (read_bytes > 0 || zero_bytes > 0) {
+    size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
+    size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-      page_add_entry (t->sup_page_table, upage, NULL, _FILE, UNMAPPED, -1, 
-                      page_read_bytes, file, offset, false, writable);
-      read_bytes -= page_read_bytes;
-      zero_bytes -= page_zero_bytes;
-      upage += PGSIZE;
-      offset += page_read_bytes;
-    }
+    page_add_entry (t->sup_page_table, upage, NULL, _FILE, UNMAPPED, -1, 
+                    page_read_bytes, file, offset, false, writable);
+    read_bytes -= page_read_bytes;
+    zero_bytes -= page_zero_bytes;
+    upage += PGSIZE;
+    offset += page_read_bytes;
+  }
 
   t->mmap_files[fd].addr = addr;
   t->mmap_files[fd].length = length;
+
   return fd;
 }
 
@@ -549,19 +573,3 @@ munmap (mapid_t mapping)
   t->mmap_files[mapping].addr = NULL;
   t->mmap_files[mapping].length = 0;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
