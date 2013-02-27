@@ -8,11 +8,12 @@
 #include "vm/frame.h"
 
 #define FREE_PAGES_START_OFFSET 1024 * 1024
+#define CLOCK_ALG_LIMIT 2
 
 static struct frame_entry *frame_table;
 static struct lock frame_table_lock;  // only used in clock algorithm
-static int max_frame_table_index;
-static int num_kernel_pages;
+static int num_user_pages;            // only used in clock algorithm
+static int num_kernel_pages;          // used in getting frame_entry
 
 void
 frame_init (size_t user_page_limit)
@@ -20,54 +21,104 @@ frame_init (size_t user_page_limit)
   uint8_t *free_start = ptov (FREE_PAGES_START_OFFSET);
   uint8_t *free_end = ptov (init_ram_pages * PGSIZE);
   size_t free_pages = (free_end - free_start) / PGSIZE;
-  size_t user_pages = free_pages / 2;
+  num_user_pages = free_pages / 2;
   
-  if (user_pages > user_page_limit)
-    user_pages = user_page_limit;
-  num_kernel_pages = free_pages - user_pages;
+  if (num_user_pages > user_page_limit)
+    num_user_pages = user_page_limit;
+  num_kernel_pages = free_pages - num_user_pages;
 
   frame_table = (struct frame_entry *) malloc (sizeof(struct frame_entry) 
-                                               * user_pages);
+                                               * num_user_pages);
+  ASSERT (frame_table != NULL);
   lock_init (&frame_table_lock);
 
   /* we use the entry->lock every time we edit the entry */
   int i;
-  for (i = 0; i < (int) user_pages; i++) {
+  for (i = 0; i < (int) num_user_pages; i++) {
     struct frame_entry *entry = &frame_table[i];
     lock_init (&entry->lock);
   }
-  max_frame_table_index = user_pages - 1;
 }
 
 static struct frame_entry *
 kpage_to_frame_entry (void *kpage)
 {
   void *phys_addr = (void *) vtop (kpage);
-  int index = (unsigned) (phys_addr - FREE_PAGES_START_OFFSET - 
-                          num_kernel_pages * PGSIZE) / PGSIZE;
-  ASSERT (index <= max_frame_table_index);
+  int index = (unsigned) (phys_addr - num_kernel_pages * PGSIZE - 
+                          FREE_PAGES_START_OFFSET) / PGSIZE;
   return &frame_table[index];
 }
 
-/* allocates page in physical memory for a specific thread's virtual memory */
-void *
-frame_add (struct thread *thread, const void *upage, bool zero_page, bool pinned) 
+static void * 
+frame_entry_to_kpage (struct frame_entry *entry)
 {
-  void *kpage = zero_page ? palloc_get_page (PAL_USER | PAL_ZERO) 
-                          : palloc_get_page (PAL_USER); 
-  if (kpage == NULL) {
-    //Will implemenent swping to swp disk here
-    ASSERT (false);
+  int index = ((unsigned) entry - (unsigned) frame_table) / 
+               sizeof (frame_entry);
+  return ptov (FREE_PAGES_START_OFFSET) + (num_kernel_pages + index) * PGSIZE;
+}
+
+static void * 
+evict (void *upage, bool pinned)
+{
+  lock_acquire (&frame_table_lock);
+  struct frame_entry *evict_entry = NULL;
+
+  int i;
+  for (i = 0; i < CLOCK_ALG_LIMIT; i++) {
+
+    int j;
+    for (j = 0; j < num_user_pages; j++) {
+      struct frame_entry *entry = &frame_table[j];
+      if (lock_try_acquire (&entry->lock)) {
+        if (pagedir_is_accessed (entry->thread->pagedir, entry->upage))
+          pagedir_set_accessed (entry->thread->pagedir, entry->upage, false);
+        else if (entry->pinned == false) {
+          evict_entry = entry;
+          lock_release (&frame_table_lock);
+          break;
+        }
+        lock_release (&entry->lock);
+      }
+    }
+
+    if (evict_entry != NULL) {
+      evict_entry->thread = thread_current ();
+      evict_entry->upage = upage;
+      evict_entry->pinned = pinned;
+
+      lock_release (&evict_entry->lock);
+      return pagedir_get_page (upage);
+    }
   }
 
-  struct frame_entry *entry = kpage_to_frame_entry (kpage);
-  lock_acquire (&entry->lock);
+  return NULL;
+}
 
-  entry->thread = thread;
-  entry->upage = upage;
-  entry->pinned = pinned;
+/* allocates page in physical memory for a specific thread's virtual memory 
+   deals with eviction if necessary.
+*/
+void *
+frame_add (struct sup_page_entry *page_entry, bool swap, bool pinned) 
+{
+  void *kpage = page_entry->zeroed ? palloc_get_page (PAL_USER | PAL_ZERO) 
+                                   : palloc_get_page (PAL_USER); 
+  if (kpage == NULL) {
+    kpage = evict();   
 
-  lock_release (&entry->lock);
+
+  } else {
+
+    struct frame_entry *frame_entry = kpage_to_frame_entry (kpage);
+    lock_acquire (&frame_entry->lock);
+
+    frame_entry->thread = thread_current ();
+    frame_entry->upage = page_entry->upage;
+    frame_entry->pinned = pinned;
+
+    lock_release (&frame_entry->lock);
+
+  }
+
   return kpage;
 }
 
@@ -77,7 +128,7 @@ frame_remove (void *kpage)
 {
   struct frame_entry *entry = kpage_to_frame_entry (kpage);
   lock_acquire (&entry->lock);
- // palloc_free_page (kpage);
+  palloc_free_page (kpage); // MAY NOT FREE WHEN EVICTION HAPPENING
   entry->upage = entry->thread = NULL;
   entry->pinned = false;
 

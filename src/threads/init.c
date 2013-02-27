@@ -101,6 +101,7 @@ main (void)
   malloc_init ();
   paging_init ();
   frame_init (user_page_limit);   // PROJECT 3
+  swap_init ();
 
   /* Segmentation. */
 #ifdef USERPROG

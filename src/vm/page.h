@@ -25,7 +25,7 @@ struct sup_page_entry {
   int page_loc;
   int page_type;
 
-  int swap_page_index;
+  int swap_index;
 
   int page_read_bytes;  // only applies to executables
 
