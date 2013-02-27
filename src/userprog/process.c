@@ -250,6 +250,12 @@ process_exit (void)
       file_close(curr_file);
       lock_release(&filesys_lock);
     }
+
+    if (t->mmap_files[i] != NULL) {
+      lock_acquire(&filesys_lock);
+      file_close(t->mmap_files[i].file);
+      lock_release(&filesys_lock);
+    }
   }
 
   printf ("%s: exit(%d)\n", t->name, t->exit_status);

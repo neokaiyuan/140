@@ -516,15 +516,21 @@ mmap (int fd, void *addr)
   
   struct file *file = file_reopen (t->file_ptrs[fd]); 
   off_t length = file_length (file); 
-  if (length == 0) 
+  if (length == 0) {
+    free (file);
     return -1;
+  }
  
-  if (addr == 0 || (unsigned) addr % PGSIZE != 0)
+  if (addr == 0 || (unsigned) addr % PGSIZE != 0) {
+    free (file);
     return -1;
+  }
   
   /* checks that the required virtual memory space is free */
-  if (!virt_mem_free (fd, addr))
+  if (!virt_mem_free (fd, addr)) {
+    free (file);
     return -1;
+  }
 
   int read_bytes = length;
   int zero_bytes = PGSIZE - length % PGSIZE;
@@ -543,6 +549,7 @@ mmap (int fd, void *addr)
     offset += page_read_bytes;
   }
 
+  t->mmap_files[fd].file = file;
   t->mmap_files[fd].addr = addr;
   t->mmap_files[fd].length = length;
 

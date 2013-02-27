@@ -34,6 +34,7 @@ typedef int tid_t;
 
 /* Struct which stores mmapped file information */
 struct mmap_entry {
+  struct file *file;
   void *addr;
   int length;
 };
@@ -152,7 +153,6 @@ struct thread
     void *esp;
     struct lock exit_lock; // used to synchronize eviction during exit 
   };
-
 
 struct exit_info
 {
