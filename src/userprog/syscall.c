@@ -484,7 +484,7 @@ virt_mem_free (int fd, void *addr)
   int i;
   for (i = 2; i <= MAX_FD_INDEX; i++) {
 
-    if (t->mmap_files[i].addr != NULL) {
+    if (t->mmap_files[i].file != NULL) {
       void *old_begin = t->mmap_files[i].addr;
       void *old_end = pg_round_up ((void *) ((unsigned) old_begin + 
                                    t->mmap_files[i].length));
@@ -511,7 +511,7 @@ mmap (int fd, void *addr)
   struct thread *t = thread_current ();
 
   if (fd == 0 || fd == 1 || fd >= MAX_FD_INDEX + 1 || 
-      t->file_ptrs[fd] == NULL || t->mmap_files[fd].addr != NULL)
+      t->file_ptrs[fd] == NULL || t->mmap_files[fd].file != NULL)
     return -1;
   
   struct file *file = file_reopen (t->file_ptrs[fd]); 
@@ -562,7 +562,7 @@ munmap (mapid_t mapping)
   struct thread *t = thread_current ();
 
   if (mapping == 0 || mapping == 1 || mapping >= MAX_FD_INDEX + 1 || 
-      t->mmap_files[mapping].addr == NULL)
+      t->mmap_files[mapping].file == NULL)
     return;
   
   void *uaddr_start = t->mmap_files[mapping].addr;
@@ -576,6 +576,8 @@ munmap (mapid_t mapping)
     curr_addr += PGSIZE;
   }
 
+  file_close (t->mmap_files[mapping].file);
+  t->mmap_files[mapping].file = NULL;
   t->mmap_files[mapping].addr = NULL;
   t->mmap_files[mapping].length = 0;
 }

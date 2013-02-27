@@ -238,7 +238,11 @@ process_exit (void)
     lock_release(&filesys_lock);
   }
 
-  /*Make sure all files opened were closed, starts at i = 2
+  /* free the supplemental page table */
+  if (t->sup_page_table != NULL)
+    hash_destroy (t->sup_page_table, &sup_page_table_action_func); 
+
+  /*Make sure all files opened are closed, starts at i = 2
     since 0 and 1 are reserved for stdin and stdout in the 
     file ptr array */
   struct file *curr_file;
@@ -251,7 +255,7 @@ process_exit (void)
       lock_release(&filesys_lock);
     }
 
-    if (t->mmap_files[i] != NULL) {
+    if (t->mmap_files[i].file != NULL) {
       lock_acquire(&filesys_lock);
       file_close(t->mmap_files[i].file);
       lock_release(&filesys_lock);
@@ -267,9 +271,6 @@ process_exit (void)
       sema_up (&t->parent->child_wait_sema);
     lock_release(&t->parent->wait_lock);
   }
-
-  if (t->sup_page_table != NULL)
-    hash_destroy (t->sup_page_table, &sup_page_table_action_func); 
 
   uint32_t *pd;
 

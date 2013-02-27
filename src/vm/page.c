@@ -50,6 +50,7 @@ page_add_entry (struct hash *sup_page_table, const void *upage, void *kpage,
   upage = pg_round_down (upage); 
   printf ("before malloc\n");
   struct sup_page_entry *entry = malloc (sizeof(struct sup_page_entry));
+  //ASSERT (entry != NULL);
   printf ("after malloc\n");
   entry->upage = upage;
   entry->kpage = kpage;
@@ -149,7 +150,7 @@ page_map (const void *upage, bool pinned)
 
   if (entry->page_loc == UNMAPPED) {
 
-    kpage = frame_add (entry, false, pinned);
+    kpage = frame_add (entry, false, pinned); // takes care of eviction
     ASSERT (kpage != NULL)
     
     entry->kpage = kpage;
@@ -169,7 +170,7 @@ page_map (const void *upage, bool pinned)
   
   } else if (entry->page_loc == SWAP_DISK) {
 
-    kpage = frame_add (entry, false, pinned);
+    kpage = frame_add (entry, false, pinned);   // takes care of eviction
     ASSERT (kpage == NULL)
     swap_read_page (entry->swap_index, kpage);
   }
