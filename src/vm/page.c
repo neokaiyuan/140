@@ -25,7 +25,7 @@ page_hash_less_func (const struct hash_elem *a, const struct hash_elem *b,
 {
   unsigned key_a = page_hash_hash_func (a, NULL);
   unsigned key_b = page_hash_hash_func (b, NULL);
-  return key_a < key_b;
+  return (unsigned ) key_a < (unsigned) key_b;
 }
 
 struct hash *
@@ -40,18 +40,19 @@ page_init ()
 /* map a page to user virtual memory, but not physical memory */
 void
 page_add_entry (struct hash *sup_page_table, const void *upage, void *kpage,
-                   int page_type, int page_loc, int swap_index, 
-                   int page_read_bytes, struct file *file, int file_offset, 
-                   bool zeroed, bool writable)
+                int page_type, int page_loc, int swap_index, 
+                int page_read_bytes, struct file *file, int file_offset, 
+                bool zeroed, bool writable)
 {
   struct thread *t = thread_current ();
   lock_acquire (&t->sup_page_table_lock);
   
   upage = pg_round_down (upage); 
-  printf ("before malloc\n");
+  //printf ("before malloc\n");
   struct sup_page_entry *entry = malloc (sizeof(struct sup_page_entry));
-  //ASSERT (entry != NULL);
-  printf ("after malloc\n");
+  ASSERT (entry != NULL);
+  //printf ("after malloc\n");
+
   entry->upage = upage;
   entry->kpage = kpage;
   entry->page_loc = page_loc;
@@ -63,9 +64,9 @@ page_add_entry (struct hash *sup_page_table, const void *upage, void *kpage,
   entry->zeroed = zeroed;
   entry->writable = writable;
 
-  printf ("before insert\n");
+  //printf ("before insert\n");
   hash_insert (sup_page_table, &entry->elem);
-  printf ("after insert\n");
+  //printf ("after insert\n");
 
   lock_release (&t->sup_page_table_lock);
 }

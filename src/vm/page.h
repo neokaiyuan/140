@@ -18,7 +18,7 @@ enum page_type {
 };
 
 struct sup_page_entry {
-  void *upage;            //The user virtual address
+  void *upage;            //  user virtual address
   struct hash_elem elem;
 
   void *kpage;          // to access relevant entry in frame_table 

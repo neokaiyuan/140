@@ -46,6 +46,8 @@ kpage_to_frame_entry (void *kpage)
   void *phys_addr = (void *) vtop (kpage);
   int index = (unsigned) (phys_addr - num_kernel_pages * PGSIZE - 
                           FREE_PAGES_START_OFFSET) / PGSIZE;
+  ASSERT (index >= 0);
+  ASSERT (index != 0);
   return &frame_table[index];
 }
 
@@ -54,6 +56,7 @@ frame_entry_to_kpage (struct frame_entry *entry)
 {
   int index = ((unsigned) entry - (unsigned) frame_table) / 
                sizeof (struct frame_entry);
+  ASSERT (index >= 0);
   return ptov (FREE_PAGES_START_OFFSET) + (num_kernel_pages + index) * PGSIZE;
 }
 

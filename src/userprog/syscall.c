@@ -251,21 +251,10 @@ exec (const char *file)
   if (!str_valid (file)) 
     exit(-1);
 
-  struct thread *t = thread_current();
   pid_t pid = (pid_t) process_execute (file);
-  if (pid == TID_ERROR) {
-    unpin_pages (file, strlen(file)); // can call strlen because str_valid
-    return -1;
-  }
-
-  sema_down (&t->child_exec_sema); // look at start_process
-  if (!t->child_exec_success) {
-    unpin_pages (file, strlen(file));
-    return -1;
-  }
 
   unpin_pages (file, strlen(file));
-  return pid; 
+  return pid; // PID_ERROR = -1 if process_execute fails
 }
 
 static int
