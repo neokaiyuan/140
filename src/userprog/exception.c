@@ -112,16 +112,6 @@ kill (struct intr_frame *f)
     }
 }
 
-static bool
-user_addr_valid (void *addr, struct intr_frame *f)
-{
-  if (addr == NULL || addr >= PHYS_BASE) 
-    return false;
-  if (addr >= PHYS_BASE - STACK_SIZE_LIMIT && addr < f->esp &&
-      addr != f->esp - 4 && addr != f->esp - 32)  // invalid stack memory
-    return false;
-  return true;
-}
 static void 
 print_and_kill (struct intr_frame *f, bool not_present, bool write, bool user,
                 void *fault_addr)
