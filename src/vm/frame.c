@@ -32,29 +32,18 @@ frame_init (size_t user_page_limit)
   ASSERT (frame_table != NULL);
   lock_init (&frame_table_lock);
 
-  /* we use the entry->lock every time we edit the entry */
   int i;
   for (i = 0; i < (int) num_user_pages; i++) {
-    struct frame_entry *entry = &frame_table[i];
+    struct frame_entry *entry = &frame_table[i]; // used every time we access a frame entry
     lock_init (&entry->lock);
   }
-}
-
-//DEBUG FUNCTION
-static unsigned
-kpage_to_frame_index (void *kpage)
-{
-  void *phys_addr = (void *) vtop (kpage);
-  return (unsigned) (phys_addr - num_kernel_pages * PGSIZE - 
-                          FREE_PAGES_START_OFFSET) / PGSIZE - 1;
 }
 
 static struct frame_entry *
 kpage_to_frame_entry (void *kpage)
 {
-  void *phys_addr = (void *) vtop (kpage);
-  int index = (unsigned) (phys_addr - num_kernel_pages * PGSIZE - 
-                          FREE_PAGES_START_OFFSET) / PGSIZE - 1;
+  int index = (unsigned) (vtop (kpage) - num_kernel_pages * PGSIZE - 
+                          FREE_PAGES_START_OFFSET) / PGSIZE;
   return &frame_table[index];
 }
 
@@ -62,8 +51,7 @@ static void *
 frame_entry_to_kpage (struct frame_entry *entry)
 {
   int index = ((unsigned) entry - (unsigned) frame_table) / 
-               sizeof (struct frame_entry) + 1;
-  ASSERT (index >= 0);
+               sizeof (struct frame_entry);
   return ptov (FREE_PAGES_START_OFFSET) + (num_kernel_pages + index) * PGSIZE;
 }
 
@@ -78,14 +66,16 @@ evict (void *upage, bool pinned)
   for (i = 0; i < CLOCK_ALG_LIMIT; i++) { // loops at most LIMIT times
 
     int j;
-    for (j = 0; j < num_user_pages - 1; j++) {
+    for (j = 1; j < num_user_pages; j++) {  // for some reason frame entries start at 1
       struct frame_entry *entry = &frame_table[j];
       if (lock_try_acquire (&entry->lock)) {
         if (pagedir_is_accessed (entry->thread->pagedir, entry->upage))
           pagedir_set_accessed (entry->thread->pagedir, entry->upage, false);
-        else if (entry->pinned == false) {
-          if (!lock_try_acquire (&entry->thread->exit_lock))
+        else if (!entry->pinned) {
+          if (!lock_try_acquire (&entry->thread->exit_lock)) {
+            lock_release (&entry->lock);
             continue;
+          }
           evict_entry = entry;
           lock_release (&frame_table_lock);
           break;
@@ -94,7 +84,7 @@ evict (void *upage, bool pinned)
       }
     }
 
-    if (evict_entry != NULL) { //Need to deal with race between this and next line w/ thread_exit
+    if (evict_entry != NULL) { // Need to deal with race between this and next line w/ thread_exit
       page_evict (evict_entry->thread, evict_entry->upage);
       lock_release (&evict_entry->thread->exit_lock);
 
@@ -120,16 +110,13 @@ frame_add (struct sup_page_entry *page_entry, bool pinned)
   void *kpage = page_entry->zeroed ? palloc_get_page (PAL_USER | PAL_ZERO)
                                    : palloc_get_page (PAL_USER); 
 
-  /* DEBUGGGGGG */
-  if (kpage != NULL)
-    printf ("kpage_to_frame_index: %d\n", kpage_to_frame_index (kpage));
-
   if (kpage == NULL) {
 
     kpage = evict (page_entry->upage, pinned);
 
   } else {
 
+    kpage = pg_round_down (kpage);
     struct frame_entry *frame_entry = kpage_to_frame_entry (kpage);
     lock_acquire (&frame_entry->lock);
 
@@ -149,6 +136,7 @@ void
 frame_remove (void *kpage)
 {
   struct frame_entry *entry = kpage_to_frame_entry (kpage);
+
   lock_acquire (&entry->lock);
   palloc_free_page (kpage); // MAY NOT FREE WHEN EVICTION HAPPENING
   entry->upage = entry->thread = NULL;
@@ -157,13 +145,13 @@ frame_remove (void *kpage)
   lock_release (&entry->lock);
 }
 
-/* 
-    This function will pin or unpin upage to the frame table. This 
+ 
+/*  This function will pin or unpin upage to the frame table. This 
     memory cannot be accessed by another thread until it is unpinned. 
     this restriction can be circumvented by a process when it exits.
     
-    Pinning is only done in syscalls and setup_stack, not eviction.
- */
+    Pinning is only done in syscalls and setup_stack, not eviction. 
+*/
 static bool
 set_pin_status (const void *upage, bool pinned)
 {
@@ -172,6 +160,7 @@ set_pin_status (const void *upage, bool pinned)
   if (kpage == NULL) 
     return false;
   
+  kpage = pg_round_down (kpage);
   struct frame_entry *entry = kpage_to_frame_entry (kpage);
   lock_acquire (&entry->lock);
 

@@ -48,10 +48,8 @@ page_add_entry (struct hash *sup_page_table, const void *upage, void *kpage,
   lock_acquire (&t->sup_page_table_lock);
   
   upage = pg_round_down (upage); 
-  //printf ("before malloc\n");
   struct sup_page_entry *entry = malloc (sizeof(struct sup_page_entry));
   ASSERT (entry != NULL);
-  //printf ("after malloc\n");
 
   entry->upage = upage;
   entry->kpage = kpage;
@@ -63,10 +61,9 @@ page_add_entry (struct hash *sup_page_table, const void *upage, void *kpage,
   entry->file_offset = file_offset;
   entry->zeroed = zeroed;
   entry->writable = writable;
+  entry->written = false; // mainly used for executables
 
-  //printf ("before insert\n");
   hash_insert (sup_page_table, &entry->elem);
-  //printf ("after insert\n");
 
   lock_release (&t->sup_page_table_lock);
 }
@@ -113,7 +110,8 @@ page_evict (struct thread *t, void *upage)
 
   } else if (entry->page_type == _EXEC) {
 
-    if (entry->writable && pagedir_is_dirty (t->pagedir, upage)) {
+    if (entry->writable && (pagedir_is_dirty (t->pagedir, upage) || entry->written)) {
+      entry->written = true;
       entry->swap_index = swap_write_page (entry->kpage);
       entry->page_loc = SWAP_DISK;
     } else {
@@ -131,7 +129,7 @@ page_evict (struct thread *t, void *upage)
 
   }
 
-  printf ("entry->page_read_bytes: %d\n", entry->page_read_bytes);
+  //printf ("entry->page_read_bytes: %d\n", entry->page_read_bytes);
   entry->kpage = NULL;
  
   if (t != thread_current ())
@@ -168,6 +166,7 @@ page_map (const void *upage, bool pinned)
                     entry->file_offset);
       memset ((char *) kpage + entry->page_read_bytes, 0, 
               PGSIZE - entry->page_read_bytes);
+      entry->written = true;
       lock_release (&filesys_lock);
     }
   
