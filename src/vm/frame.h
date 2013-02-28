@@ -12,7 +12,7 @@ struct frame_entry {
 };
  
 void frame_init (size_t user_page_limit);
-void *frame_add (struct sup_page_entry *page_entry, bool swap, bool pinned);
+void *frame_add (struct sup_page_entry *page_entry, bool pinned);
 void frame_remove (void *kpage);
 bool frame_pin (const void *upage);
 bool frame_unpin (void *upage);

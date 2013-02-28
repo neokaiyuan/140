@@ -7,13 +7,14 @@
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "lib/string.h"
+#include "threads/malloc.h"
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/pagedir.h"
 #include "userprog/process.h"
-#include "vm/page.h"
 #include "vm/frame.h"
+#include "vm/page.h"
 
 static void syscall_handler (struct intr_frame *);
 static bool mem_valid (const void *ptr, int size, bool write);

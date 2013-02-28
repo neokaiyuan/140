@@ -24,7 +24,7 @@ swap_read_page (int swap_index, void *buffer)
   int i;
   for (i = 0; i < SECTORS_PER_PAGE; i++) {
     block_read (swap_block, swap_index * SECTORS_PER_PAGE + i,
-                buffer + i * BLOCK_SECTOR_SIZE);
+                (char *) buffer + i * BLOCK_SECTOR_SIZE);
   }
 
   bitmap_set (swap_table, swap_index, false);
@@ -37,13 +37,14 @@ swap_write_page (void *buffer)
   
   lock_acquire (&swap_table_lock);
   int swap_index = bitmap_scan_and_flip (swap_table, 0, 1, false);
+
   lock_release (&swap_table_lock);
   ASSERT (swap_index != BITMAP_ERROR);
 
   int i;
   for (i = 0; i < SECTORS_PER_PAGE; i++) {
     block_write (swap_block, swap_index * SECTORS_PER_PAGE + i,
-                 buffer + i * BLOCK_SECTOR_SIZE);
+                 (char *) buffer + i * BLOCK_SECTOR_SIZE);
   }
 
   return swap_index;

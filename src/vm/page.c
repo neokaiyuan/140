@@ -151,12 +151,13 @@ page_map (const void *upage, bool pinned)
 
   if (entry->page_loc == UNMAPPED) {
 
-    kpage = frame_add (entry, false, pinned); // takes care of eviction
+    kpage = frame_add (entry, pinned); // takes care of eviction
     ASSERT (kpage != NULL)
     
     entry->kpage = kpage;
     entry->page_loc = MAIN_MEMORY;
     pagedir_set_page (t->pagedir, upage, kpage, entry->writable);
+
     if (entry->zeroed)
       memset (entry->kpage, 0, PGSIZE);
     
@@ -164,16 +165,21 @@ page_map (const void *upage, bool pinned)
       lock_acquire (&filesys_lock);
       file_read_at (entry->file, kpage, entry->page_read_bytes,
                     entry->file_offset);
-      memset (kpage + entry->page_read_bytes, 0, 
+      memset ((char *) kpage + entry->page_read_bytes, 0, 
               PGSIZE - entry->page_read_bytes);
       lock_release (&filesys_lock);
     }
   
   } else if (entry->page_loc == SWAP_DISK) {
 
-    kpage = frame_add (entry, false, pinned);   // takes care of eviction
-    ASSERT (kpage == NULL)
+    kpage = frame_add (entry, pinned);   // takes care of eviction
+    ASSERT (kpage != NULL);
     swap_read_page (entry->swap_index, kpage);
+
+    entry->kpage = kpage;
+    entry->page_loc = MAIN_MEMORY;
+    entry->swap_index = -1;
+    pagedir_set_page (t->pagedir, upage, kpage, entry->writable);
   }
 
   lock_release (&t->sup_page_table_lock);
@@ -217,7 +223,12 @@ unmap (struct thread *t, struct sup_page_entry *entry)
     } else {
       swap_remove (entry->swap_index);
     }
+
+    entry->swap_index = -1;
   }
+
+  entry->kpage = NULL;
+  entry->page_loc = UNMAPPED;
 }
 
 void 

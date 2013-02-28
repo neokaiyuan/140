@@ -40,14 +40,21 @@ frame_init (size_t user_page_limit)
   }
 }
 
+//DEBUG FUNCTION
+static unsigned
+kpage_to_frame_index (void *kpage)
+{
+  void *phys_addr = (void *) vtop (kpage);
+  return (unsigned) (phys_addr - num_kernel_pages * PGSIZE - 
+                          FREE_PAGES_START_OFFSET) / PGSIZE;
+}
+
 static struct frame_entry *
 kpage_to_frame_entry (void *kpage)
 {
   void *phys_addr = (void *) vtop (kpage);
   int index = (unsigned) (phys_addr - num_kernel_pages * PGSIZE - 
-                          FREE_PAGES_START_OFFSET) / PGSIZE;
-  ASSERT (index >= 0);
-  ASSERT (index != 0);
+                          FREE_PAGES_START_OFFSET) / PGSIZE - 1;
   return &frame_table[index];
 }
 
@@ -55,7 +62,7 @@ static void *
 frame_entry_to_kpage (struct frame_entry *entry)
 {
   int index = ((unsigned) entry - (unsigned) frame_table) / 
-               sizeof (struct frame_entry);
+               sizeof (struct frame_entry) + 1;
   ASSERT (index >= 0);
   return ptov (FREE_PAGES_START_OFFSET) + (num_kernel_pages + index) * PGSIZE;
 }
@@ -71,7 +78,7 @@ evict (void *upage, bool pinned)
   for (i = 0; i < CLOCK_ALG_LIMIT; i++) { // loops at most LIMIT times
 
     int j;
-    for (j = 0; j < num_user_pages; j++) {
+    for (j = 0; j < num_user_pages - 1; j++) {
       struct frame_entry *entry = &frame_table[j];
       if (lock_try_acquire (&entry->lock)) {
         if (pagedir_is_accessed (entry->thread->pagedir, entry->upage))
@@ -108,10 +115,13 @@ evict (void *upage, bool pinned)
    deals with eviction if necessary.
 */
 void *
-frame_add (struct sup_page_entry *page_entry, bool swap, bool pinned) 
+frame_add (struct sup_page_entry *page_entry, bool pinned) 
 {
   void *kpage = page_entry->zeroed ? palloc_get_page (PAL_USER | PAL_ZERO)
                                    : palloc_get_page (PAL_USER); 
+
+  //printf ("kpage_to_frame_index: %d\n", kpage_to_frame_index (kpage));
+
   if (kpage == NULL) {
 
     kpage = evict (page_entry->upage, pinned);
