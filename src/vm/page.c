@@ -131,6 +131,7 @@ page_evict (struct thread *t, void *upage)
 
   }
 
+  printf ("entry->page_read_bytes: %d\n", entry->page_read_bytes);
   entry->kpage = NULL;
  
   if (t != thread_current ())
@@ -175,7 +176,7 @@ page_map (const void *upage, bool pinned)
     kpage = frame_add (entry, pinned);   // takes care of eviction
     ASSERT (kpage != NULL);
     swap_read_page (entry->swap_index, kpage);
-
+    
     entry->kpage = kpage;
     entry->page_loc = MAIN_MEMORY;
     entry->swap_index = -1;

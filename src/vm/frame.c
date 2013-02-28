@@ -46,7 +46,7 @@ kpage_to_frame_index (void *kpage)
 {
   void *phys_addr = (void *) vtop (kpage);
   return (unsigned) (phys_addr - num_kernel_pages * PGSIZE - 
-                          FREE_PAGES_START_OFFSET) / PGSIZE;
+                          FREE_PAGES_START_OFFSET) / PGSIZE - 1;
 }
 
 static struct frame_entry *
@@ -120,7 +120,9 @@ frame_add (struct sup_page_entry *page_entry, bool pinned)
   void *kpage = page_entry->zeroed ? palloc_get_page (PAL_USER | PAL_ZERO)
                                    : palloc_get_page (PAL_USER); 
 
-  //printf ("kpage_to_frame_index: %d\n", kpage_to_frame_index (kpage));
+  /* DEBUGGGGGG */
+  if (kpage != NULL)
+    printf ("kpage_to_frame_index: %d\n", kpage_to_frame_index (kpage));
 
   if (kpage == NULL) {
 
