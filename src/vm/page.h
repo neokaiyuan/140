@@ -35,6 +35,7 @@ struct sup_page_entry {
   bool zeroed;
   bool writable;
   bool written;
+  struct lock lock;
 };
 
 /* Initializing the supp page table */

@@ -214,7 +214,7 @@ static void
 sup_page_table_action_func (struct hash_elem *e, void *aux UNUSED)
 {
   struct sup_page_entry *entry = (struct sup_page_entry *) 
-                                  hash_entry (e, struct sup_page_entry, elem); 
+                                  hash_entry (e, struct sup_page_entry, elem);
   page_unmap_via_entry (thread_current (), entry);
   free (entry);  
 }
@@ -246,9 +246,13 @@ process_exit (void)
   }
 
   /* free the supplemental page table */
-  if (t->sup_page_table != NULL)
+  if (t->sup_page_table != NULL) {
+    lock_acquire (&t->exit_lock);
+    lock_acquire (&t->sup_page_table_lock);
     hash_destroy (t->sup_page_table, &sup_page_table_action_func); 
-
+    lock_release (&t->sup_page_table_lock);
+    lock_release (&t->exit_lock);
+  }
   /*Make sure all files opened are closed, starts at i = 2
     since 0 and 1 are reserved for stdin and stdout in the 
     file ptr array */

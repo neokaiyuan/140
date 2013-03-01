@@ -53,5 +53,7 @@ swap_write_page (void *buffer)
 void 
 swap_remove (int swap_index)
 {
+  lock_acquire (&swap_table_lock);
   bitmap_set (swap_table, swap_index, false);
+  lock_release (&swap_table_lock);
 }

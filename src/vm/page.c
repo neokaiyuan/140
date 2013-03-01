@@ -51,6 +51,7 @@ page_add_entry (struct hash *sup_page_table, const void *upage, void *kpage,
   struct sup_page_entry *entry = malloc (sizeof(struct sup_page_entry));
   ASSERT (entry != NULL);
 
+  lock_init (&entry->lock);
   entry->upage = upage;
   entry->kpage = kpage;
   entry->page_loc = page_loc;
@@ -61,13 +62,14 @@ page_add_entry (struct hash *sup_page_table, const void *upage, void *kpage,
   entry->file_offset = file_offset;
   entry->zeroed = zeroed;
   entry->writable = writable;
-  entry->written = false; // mainly used for executables
+  entry->written = false; // used for executables swapping in and out multiple times
 
   hash_insert (sup_page_table, &entry->elem);
 
-  lock_release (&t->sup_page_table_lock);
+  lock_release (&t->sup_page_table_lock); //safe because of large lock
 }
 
+//Must be locked with sup page table lock
 static struct sup_page_entry *
 get_sup_page_entry (struct thread *t, const void *upage)
 {
@@ -83,7 +85,7 @@ void
 page_remove_entry (void *upage)
 {
   struct thread *t = thread_current ();
-  lock_acquire (&t->sup_page_table_lock);
+  lock_acquire (&t->sup_page_table_lock); //Since freeing cannot use small lock
   
   upage = pg_round_down (upage); 
   struct sup_page_entry *entry = get_sup_page_entry (t, upage);  
@@ -98,11 +100,12 @@ page_remove_entry (void *upage)
 void
 page_evict (struct thread *t, void *upage)
 {
-  if (t != thread_current ())
-    lock_acquire (&t->sup_page_table_lock);
   pagedir_clear_page (t->pagedir, upage); // t cannot access during evict
 
   struct sup_page_entry *entry = get_sup_page_entry (t, upage);   
+  lock_acquire (&entry->lock);
+  lock_release (&t->sup_page_table_lock);
+
   if (entry->page_type == _STACK) {
 
     entry->swap_index = swap_write_page (entry->kpage);
@@ -129,11 +132,9 @@ page_evict (struct thread *t, void *upage)
 
   }
 
-  //printf ("entry->page_read_bytes: %d\n", entry->page_read_bytes);
   entry->kpage = NULL;
- 
-  if (t != thread_current ())
-    lock_release (&t->sup_page_table_lock);
+
+  lock_release (&entry->lock);
 }
 
 /* map an address into main memory, evicting another frame if necessary */
@@ -145,20 +146,19 @@ page_map (const void *upage, bool pinned)
 
   upage = pg_round_down (upage); 
   struct sup_page_entry *entry = get_sup_page_entry (t, upage);  
+  lock_acquire (&entry->lock);
+  lock_release (&t->sup_page_table_lock);
+
+  ASSERT (entry->page_loc != MAIN_MEMORY);
 
   void *kpage = NULL;
+  kpage = frame_add (entry, pinned); // takes care of eviction
+  ASSERT (kpage != NULL)
 
   if (entry->page_loc == UNMAPPED) {
 
-    kpage = frame_add (entry, pinned); // takes care of eviction
-    ASSERT (kpage != NULL)
-    
-    entry->kpage = kpage;
-    entry->page_loc = MAIN_MEMORY;
-    pagedir_set_page (t->pagedir, upage, kpage, entry->writable);
-
     if (entry->zeroed)
-      memset (entry->kpage, 0, PGSIZE);
+      memset (kpage, 0, PGSIZE);
     
     if (entry->page_type == _FILE || entry->page_type == _EXEC) {
       lock_acquire (&filesys_lock);
@@ -166,23 +166,22 @@ page_map (const void *upage, bool pinned)
                     entry->file_offset);
       memset ((char *) kpage + entry->page_read_bytes, 0, 
               PGSIZE - entry->page_read_bytes);
-      entry->written = true;
       lock_release (&filesys_lock);
     }
   
   } else if (entry->page_loc == SWAP_DISK) {
 
-    kpage = frame_add (entry, pinned);   // takes care of eviction
-    ASSERT (kpage != NULL);
     swap_read_page (entry->swap_index, kpage);
-    
-    entry->kpage = kpage;
-    entry->page_loc = MAIN_MEMORY;
     entry->swap_index = -1;
-    pagedir_set_page (t->pagedir, upage, kpage, entry->writable);
+
   }
 
-  lock_release (&t->sup_page_table_lock);
+  entry->kpage = kpage;
+  entry->page_loc = MAIN_MEMORY;
+  pagedir_set_page (t->pagedir, upage, kpage, entry->writable);
+
+  lock_release (&entry->lock);
+
   return kpage;
 }
 
@@ -231,19 +230,17 @@ unmap (struct thread *t, struct sup_page_entry *entry)
   entry->page_loc = UNMAPPED;
 }
 
+//Assumes that a lock for this is already held, ie., not concurrency safe
+// called in process_exit
 void 
 page_unmap_via_entry (struct thread *t, struct sup_page_entry *entry)
 {
-  lock_acquire (&t->exit_lock);
-  lock_acquire (&t->sup_page_table_lock);
-
   unmap (t, entry);
-
-  lock_release (&t->exit_lock);
-  lock_release (&t->sup_page_table_lock);
 }
 
+//Assumes that a lock for this is already held, ie., not concurrency safe
 /* unmap a page from physical memory */
+// called in syscall.c
 void
 page_unmap_via_upage (struct thread *t, void *upage) 
 {
@@ -251,10 +248,12 @@ page_unmap_via_upage (struct thread *t, void *upage)
 
   upage = pg_round_down (upage); 
   struct sup_page_entry *entry = get_sup_page_entry (t, upage);  
+  lock_acquire (&entry->lock);
+  lock_release (&t->sup_page_table_lock);
 
   unmap (t, entry);
 
-  lock_release (&t->sup_page_table_lock);
+  lock_release (&entry->lock);
 }
 
 bool
@@ -265,7 +264,9 @@ page_entry_present (struct thread *t, const void *upage)
   upage = pg_round_down (upage); 
   struct sup_page_entry *entry = get_sup_page_entry (t, upage);  
 
+  //lock_acquire (&entry->lock);
   lock_release (&t->sup_page_table_lock);
+  //lock_release (&entry->lock); //In case you would block
 
   if (entry == NULL) return false;
   return true;
@@ -276,12 +277,15 @@ page_writable (struct thread *t, const void *upage)
 {
   lock_acquire (&t->sup_page_table_lock);
 
-  bool page_writable = false;
   upage = pg_round_down (upage); 
   struct sup_page_entry *entry = get_sup_page_entry (t, upage);  
+  lock_acquire (&entry->lock);
+  lock_release (&t->sup_page_table_lock);
+
+  bool page_writable = false;
   if (entry != NULL) 
      page_writable = entry->writable;
 
-  lock_release (&t->sup_page_table_lock);
+  lock_release (&entry->lock); 
   return page_writable;
 }
