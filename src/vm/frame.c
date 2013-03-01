@@ -59,8 +59,9 @@ frame_entry_to_kpage (struct frame_entry *entry)
 /* Entering this function you already have the frame table lock and the lock for
  the entry you own*/
 static void * 
-evict (void *upage, bool pinned)
+evict (struct sup_page_entry *page_entry, bool pinned)
 {
+  struct thread *t = thread_current ();
   int j = 0;
 
   int i;
@@ -76,12 +77,18 @@ evict (void *upage, bool pinned)
       if (lock_try_acquire (&entry->lock)) {
 
         if (entry->thread == NULL) {
+          void *kpage = palloc_get_page (PAL_USER);
+          ASSERT (kpage == frame_entry_to_kpage (entry));
+          pagedir_set_page (t->pagedir, page_entry->upage, kpage, page_entry->writable);
+          entry->thread = t;
+          entry->upage = page_entry->upage;
+          entry->pinned = pinned;
+          lock_release (&frame_table_lock);
           lock_release (&entry->lock);
-          continue;
+          return kpage;
         }
 
         if (pagedir_is_accessed (entry->thread->pagedir, entry->upage)) {
-
           pagedir_set_accessed (entry->thread->pagedir, entry->upage, false);
 
         } else if (!entry->pinned) {
@@ -119,7 +126,7 @@ evict (void *upage, bool pinned)
       lock_release (&evict_entry->thread->exit_lock);
 
       evict_entry->thread = thread_current ();
-      evict_entry->upage = upage;
+      evict_entry->upage = page_entry->upage;
       evict_entry->pinned = pinned;
 
       lock_release (&evict_entry->lock);
@@ -128,7 +135,7 @@ evict (void *upage, bool pinned)
 
     //printf ("iteration num: %d\n", j);
     j++;
-    ASSERT (j < 10);
+    ASSERT (j < 50);
   }
 
   lock_release (&frame_table_lock);
@@ -141,14 +148,20 @@ evict (void *upage, bool pinned)
 void *
 frame_add (struct sup_page_entry *page_entry, bool pinned) 
 {
+  struct thread *t = thread_current ();
+  lock_acquire (&frame_table_lock);
+
   void *kpage = page_entry->zeroed ? palloc_get_page (PAL_USER | PAL_ZERO)
                                    : palloc_get_page (PAL_USER); 
-  lock_acquire (&frame_table_lock);
   if (kpage == NULL) {
 
-    kpage = evict (page_entry->upage, pinned);
+    kpage = evict (page_entry, pinned);
+    if (pagedir_get_page (t->pagedir, page_entry->upage) == NULL)
+      pagedir_set_page (t->pagedir, page_entry->upage, kpage, page_entry->writable);
 
   } else {
+
+    pagedir_set_page (t->pagedir, page_entry->upage, kpage, page_entry->writable);
 
     kpage = pg_round_down (kpage);
     struct frame_entry *frame_entry = kpage_to_frame_entry (kpage);

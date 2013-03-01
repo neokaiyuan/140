@@ -123,7 +123,8 @@ page_evict (struct thread *t, void *upage)
 
   } else {
     
-    if (entry->writable && pagedir_is_dirty (t->pagedir, upage)) {
+    if (entry->writable && (pagedir_is_dirty (t->pagedir, upage) || entry->written)) {
+      entry->written = true;
       lock_acquire (&filesys_lock);
       file_write_at (entry->file, entry->kpage, PGSIZE, entry->file_offset);
       lock_release (&filesys_lock);
@@ -178,7 +179,7 @@ page_map (const void *upage, bool pinned)
 
   entry->kpage = kpage;
   entry->page_loc = MAIN_MEMORY;
-  pagedir_set_page (t->pagedir, upage, kpage, entry->writable);
+  //pagedir_set_page (t->pagedir, upage, kpage, entry->writable);
 
   lock_release (&entry->lock);
 
@@ -230,7 +231,7 @@ unmap (struct thread *t, struct sup_page_entry *entry)
   entry->page_loc = UNMAPPED;
 }
 
-//Assumes that a lock for this is already held, ie., not concurrency safe
+//Assumes that a lock for this table is already held, ie., not concurrency safe
 // called in process_exit
 void 
 page_unmap_via_entry (struct thread *t, struct sup_page_entry *entry)
@@ -263,10 +264,7 @@ page_entry_present (struct thread *t, const void *upage)
 
   upage = pg_round_down (upage); 
   struct sup_page_entry *entry = get_sup_page_entry (t, upage);  
-
-  //lock_acquire (&entry->lock);
   lock_release (&t->sup_page_table_lock);
-  //lock_release (&entry->lock); //In case you would block
 
   if (entry == NULL) return false;
   return true;
