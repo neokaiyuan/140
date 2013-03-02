@@ -507,18 +507,18 @@ mmap (int fd, void *addr)
   struct file *file = file_reopen (t->file_ptrs[fd]); 
   off_t length = file_length (file); 
   if (length == 0) {
-    free (file);
+    file_close (file);
     return -1;
   }
  
   if (addr == 0 || (unsigned) addr % PGSIZE != 0) {
-    free (file);
+    file_close (file);
     return -1;
   }
   
   /* checks that the required virtual memory space is free */
   if (!virt_mem_free (fd, addr)) {
-    free (file);
+    file_close (file);
     return -1;
   }
 
@@ -559,11 +559,11 @@ munmap (mapid_t mapping)
   void *uaddr_end = pg_round_up ((void *) ((unsigned) uaddr_start +
                                  t->mmap_files[mapping].length));
 
-  void *curr_addr = uaddr_start;
-  while (curr_addr < uaddr_end) {
-    page_unmap_via_upage (t, curr_addr);
-    page_remove_entry (curr_addr);
-    curr_addr += PGSIZE;
+  void *upage = uaddr_start;
+  while (upage < uaddr_end) {
+    page_unmap_via_upage (t, upage);
+    page_remove_entry (upage);
+    upage += PGSIZE;
   }
 
   file_close (t->mmap_files[mapping].file);

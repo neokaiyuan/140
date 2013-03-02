@@ -27,7 +27,9 @@ swap_read_page (int swap_index, void *buffer)
                 (char *) buffer + i * BLOCK_SECTOR_SIZE);
   }
 
+  lock_acquire (&swap_table_lock);
   bitmap_set (swap_table, swap_index, false);
+  lock_release (&swap_table_lock);
 }
 
 int
@@ -37,7 +39,6 @@ swap_write_page (void *buffer)
   
   lock_acquire (&swap_table_lock);
   int swap_index = bitmap_scan_and_flip (swap_table, 0, 1, false);
-
   lock_release (&swap_table_lock);
   ASSERT (swap_index != BITMAP_ERROR);
 

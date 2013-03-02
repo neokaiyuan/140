@@ -53,7 +53,7 @@ void page_evict (struct thread *t, void *upage);
 /*Mapping or unmapping a uaddr, this must already have a valid entry in the
   supp page table */
 void *page_map (const void *upage, bool pinned);
-void page_unmap_via_entry (struct thread *t, struct sup_page_entry *entry);
+void page_unmap_via_entry (struct thread *t, struct sup_page_entry *entry); //Not concurrency safe
 void page_unmap_via_upage (struct thread *t, void *upage);
 
 /* Checking the status of pages */

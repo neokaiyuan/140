@@ -32,7 +32,8 @@ struct hash *
 page_init ()
 {
   struct hash *sup_page_table = malloc (sizeof(struct hash));
-  ASSERT (sup_page_table != NULL);
+  if (sup_page_table == NULL)
+    return NULL;
   hash_init (sup_page_table, &page_hash_hash_func, &page_hash_less_func, NULL);
   return sup_page_table;
 }
@@ -102,6 +103,7 @@ page_evict (struct thread *t, void *upage)
 {
   pagedir_clear_page (t->pagedir, upage); // t cannot access during evict
 
+  lock_acquire (&t->sup_page_table_lock);
   struct sup_page_entry *entry = get_sup_page_entry (t, upage);   
   lock_acquire (&entry->lock);
   lock_release (&t->sup_page_table_lock);
@@ -179,7 +181,6 @@ page_map (const void *upage, bool pinned)
 
   entry->kpage = kpage;
   entry->page_loc = MAIN_MEMORY;
-  //pagedir_set_page (t->pagedir, upage, kpage, entry->writable);
 
   lock_release (&entry->lock);
 
@@ -192,16 +193,14 @@ static void
 unmap (struct thread *t, struct sup_page_entry *entry)
 {
   pagedir_clear_page (t->pagedir, entry->upage);
-  bool is_dirty = pagedir_is_dirty (t->pagedir, entry->upage);
 
   if (entry->page_loc == MAIN_MEMORY) {
 
     if (entry->page_type == _FILE && entry->writable && 
-        is_dirty) {
+        pagedir_is_dirty (t->pagedir, entry->upage)) {
+
       lock_acquire (&filesys_lock);
-
       file_write_at (entry->file, entry->kpage, PGSIZE, entry->file_offset);
-
       lock_release (&filesys_lock);
     }
 
@@ -210,10 +209,12 @@ unmap (struct thread *t, struct sup_page_entry *entry)
   } else if (entry->page_loc == SWAP_DISK) { // file being unmapped is on swap
 
     if (entry->page_type == _FILE && entry->writable &&
-        is_dirty) {
+        pagedir_is_dirty (t->pagedir, entry->upage)) {
+
       lock_acquire (&filesys_lock);
 
       char *buffer = palloc_get_page (0);
+      ASSERT (buffer != NULL);
       swap_read_page (entry->swap_index, buffer);
       file_write_at (entry->file, buffer, PGSIZE, entry->file_offset);      
       palloc_free_page (buffer);
@@ -231,8 +232,8 @@ unmap (struct thread *t, struct sup_page_entry *entry)
   entry->page_loc = UNMAPPED;
 }
 
-//Assumes that a lock for this table is already held, ie., not concurrency safe
-// called in process_exit
+/* This function is not concurrency safe, it relies on the user to acquire
+  the sup entry lock */
 void 
 page_unmap_via_entry (struct thread *t, struct sup_page_entry *entry)
 {

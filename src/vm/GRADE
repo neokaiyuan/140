@@ -231,11 +231,9 @@ pass tests/vm/page-linear
 pintos -v -k -T 600 --qemu  --filesys-size=2 -p tests/vm/page-merge-seq -a page-merge-seq -p tests/vm/child-sort -a child-sort --swap-size=4 -- -q  -f run page-merge-seq < /dev/null 2> tests/vm/page-merge-seq.errors > tests/vm/page-merge-seq.output
 perl -I../.. ../../tests/vm/page-merge-seq.ck tests/vm/page-merge-seq tests/vm/page-merge-seq.result
 pass tests/vm/page-merge-seq
-/usr/class/cs140/x86_64/bin/i586-elf-gcc -m32  -Wl,--build-id=none -nostdlib -static -Wl,-T,../../lib/user/user.lds tests/vm/page-merge-par.o tests/vm/parallel-merge.o tests/arc4.o tests/lib.o tests/main.o lib/user/entry.o libc.a -o tests/vm/page-merge-par
 pintos -v -k -T 600 --qemu  --filesys-size=2 -p tests/vm/page-merge-par -a page-merge-par -p tests/vm/child-sort -a child-sort --swap-size=4 -- -q  -f run page-merge-par < /dev/null 2> tests/vm/page-merge-par.errors > tests/vm/page-merge-par.output
 perl -I../.. ../../tests/vm/page-merge-par.ck tests/vm/page-merge-par tests/vm/page-merge-par.result
 pass tests/vm/page-merge-par
-/usr/class/cs140/x86_64/bin/i586-elf-gcc -m32  -Wl,--build-id=none -nostdlib -static -Wl,-T,../../lib/user/user.lds tests/vm/page-merge-stk.o tests/vm/parallel-merge.o tests/arc4.o tests/lib.o tests/main.o lib/user/entry.o libc.a -o tests/vm/page-merge-stk
 pintos -v -k -T 60 --qemu  --filesys-size=2 -p tests/vm/page-merge-stk -a page-merge-stk -p tests/vm/child-qsort -a child-qsort --swap-size=4 -- -q  -f run page-merge-stk < /dev/null 2> tests/vm/page-merge-stk.errors > tests/vm/page-merge-stk.output
 perl -I../.. ../../tests/vm/page-merge-stk.ck tests/vm/page-merge-stk tests/vm/page-merge-stk.result
 pass tests/vm/page-merge-stk

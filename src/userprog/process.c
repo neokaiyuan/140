@@ -62,6 +62,7 @@ setup_user_stack (void **esp, char **args, char *file_name)
 {
   // need to palloc so we don't overewrite stack
   char **buf = palloc_get_page(0);
+  ASSERT (buf != NULL);
   buf[0] = file_name;
 
   /* parse arguments into local buffer */
@@ -134,6 +135,7 @@ start_process (void *aux)
       of children */
     if (t->parent != NULL) {
       struct exit_info *info = malloc (sizeof(struct exit_info));
+      ASSERT (info != NULL);
       info->tid = t->tid;
       info->exit_status = (int) NULL;  // only set this upon exit
       info->child = t;
@@ -215,7 +217,9 @@ sup_page_table_action_func (struct hash_elem *e, void *aux UNUSED)
 {
   struct sup_page_entry *entry = (struct sup_page_entry *) 
                                   hash_entry (e, struct sup_page_entry, elem);
+  lock_acquire (&entry->lock);
   page_unmap_via_entry (thread_current (), entry);
+  lock_release (&entry->lock);
   free (entry);  
 }
 
@@ -239,12 +243,6 @@ process_exit (void)
     my_info->child = NULL;
   }
  
-  if (t->my_exec != NULL) {  // checks if executable
-    lock_acquire(&filesys_lock);
-    file_close(t->my_exec);
-    lock_release(&filesys_lock);
-  }
-
   /* free the supplemental page table */
   if (t->sup_page_table != NULL) {
     lock_acquire (&t->exit_lock);
@@ -253,22 +251,29 @@ process_exit (void)
     lock_release (&t->sup_page_table_lock);
     lock_release (&t->exit_lock);
   }
+
+  if (t->my_exec != NULL) {  // checks if executable
+    lock_acquire(&filesys_lock);
+    file_close(t->my_exec);
+    lock_release(&filesys_lock);
+  }
+
   /*Make sure all files opened are closed, starts at i = 2
     since 0 and 1 are reserved for stdin and stdout in the 
     file ptr array */
   struct file *curr_file;
   int i;
   for (i = 2; i <= MAX_FD_INDEX; i++) {
+    if (t->mmap_files[i].file != NULL) {
+      lock_acquire(&filesys_lock);
+      file_close(t->mmap_files[i].file);
+      lock_release(&filesys_lock);
+    }
+
     curr_file = t->file_ptrs[i];
     if (curr_file != NULL) {
       lock_acquire(&filesys_lock);
       file_close(curr_file);
-      lock_release(&filesys_lock);
-    }
-
-    if (t->mmap_files[i].file != NULL) {
-      lock_acquire(&filesys_lock);
-      file_close(t->mmap_files[i].file);
       lock_release(&filesys_lock);
     }
   }

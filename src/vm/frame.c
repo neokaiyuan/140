@@ -8,7 +8,6 @@
 #include "vm/frame.h"
 
 #define FREE_PAGES_START_OFFSET 1024 * 1024
-#define CLOCK_ALG_LIMIT 2
 
 static struct frame_entry *frame_table;
 static struct lock frame_table_lock;  // only used in clock algorithm
@@ -62,10 +61,9 @@ static void *
 evict (struct sup_page_entry *page_entry, bool pinned)
 {
   struct thread *t = thread_current ();
-  int j = 0;
 
   int i;
-  int saved_index = 1;
+  int saved_index = 1; //Palloc uses page 0 of user memory for bookkeeping overhead
 
   while (true) {
   struct frame_entry *evict_entry = NULL;
@@ -78,8 +76,11 @@ evict (struct sup_page_entry *page_entry, bool pinned)
 
         if (entry->thread == NULL) {
           void *kpage = palloc_get_page (PAL_USER);
+          kpage = pg_round_down (kpage);
+          ASSERT (kpage != NULL);
           ASSERT (kpage == frame_entry_to_kpage (entry));
-          pagedir_set_page (t->pagedir, page_entry->upage, kpage, page_entry->writable);
+          pagedir_set_page (t->pagedir, page_entry->upage, kpage, 
+                            page_entry->writable);
           entry->thread = t;
           entry->upage = page_entry->upage;
           entry->pinned = pinned;
@@ -90,37 +91,27 @@ evict (struct sup_page_entry *page_entry, bool pinned)
 
         if (pagedir_is_accessed (entry->thread->pagedir, entry->upage)) {
           pagedir_set_accessed (entry->thread->pagedir, entry->upage, false);
-
         } else if (!entry->pinned) {
 
-          if (!lock_try_acquire (&entry->thread->exit_lock)) {  // target thread exiting
+          if (!lock_try_acquire (&entry->thread->exit_lock)) { // target exit
             lock_release (&entry->lock);
             continue;
           }
-
           evict_entry = entry;
+          lock_release (&frame_table_lock);
           break;
-
         } 
         lock_release (&entry->lock);
       }
     }
 
-    if (evict_entry != NULL) { // deal with race between this and next line w/ thread_exit
+    if (evict_entry != NULL) { 
 
-      if (!lock_try_acquire (&evict_entry->thread->sup_page_table_lock)) {
-        lock_release (&evict_entry->thread->exit_lock);
-        lock_release (&evict_entry->lock);        
-        saved_index = i + 1;
-        continue;
-      }
-
-      lock_release (&frame_table_lock);
       /* Entering page evict have evicting thread's supp entry lock and the
       frame entry lock for thread being evicted as well as its exit lock.
 
-      page evict must acquire the evicted supp entry lock, and release the supp page 
-      table lock before doing I/O */ 
+      page evict must acquire the evicted supp entry lock, and release the 
+      supp page table lock before doing I/O */ 
       page_evict (evict_entry->thread, evict_entry->upage);  
 
       lock_release (&evict_entry->thread->exit_lock);
@@ -133,9 +124,6 @@ evict (struct sup_page_entry *page_entry, bool pinned)
       return frame_entry_to_kpage (evict_entry);
     }
 
-    //printf ("iteration num: %d\n", j);
-    j++;
-    ASSERT (j < 50);
   }
 
   lock_release (&frame_table_lock);
@@ -195,9 +183,6 @@ frame_remove (void *kpage)
 
 /*  This function will pin or unpin upage to the frame table. This 
     memory cannot be accessed by another thread until it is unpinned. 
-    this restriction can be circumvented by a process when it exits.
-    
-    Pinning is only done in syscalls and setup_stack, not eviction. 
 */
 static bool
 set_pin_status (const void *upage, bool pinned)
