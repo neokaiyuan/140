@@ -45,7 +45,6 @@ enum page_loc {
   MAIN_MEMORY = 1,
   SWAP_DISK = 2
 };
-
 This tells our supplemental page table entry where in memory this page
 currently resides.
 
@@ -54,7 +53,6 @@ enum page_type {
   _EXEC = 1,
   _FILE = 2
 };
-
 This tells our supplemental page table entry what type of memory this
 page holds. It does not change while in the table.
 
@@ -302,13 +300,88 @@ and use the same swap_index.
 >> B2: When a frame is required but none is free, some frame must be
 >> evicted.  Describe your code for choosing a frame to evict.
 
+We choose the frame to evict using the clock algorithm from class. We
+iterate through our frame table (which is an array) one entry at a time.
+If this frame is either exiting, pinned, or recently used, we skip it. In
+the case that it is recently used (this information is gotten from the
+pagedir holding the frame), we also set its access bit off before moving
+on.
+
+There is of course much synchronization involved here. This is explained
+in great detail in B5.
+
+
 >> B3: When a process P obtains a frame that was previously used by a
 >> process Q, how do you adjust the page table (and any other data
 >> structures) to reflect the frame Q no longer has?
 
+We update four structures:
+
+  1) The frame entry corrosponding to the frame. We set its thread *
+  (struct thread *) to &P and update the user address it stores as
+  well as its pinned status if necessary.
+
+  2) Q's pagedir, we must remove its mapping from the user address
+  to this frame, typically with pagedir_clear_page.
+
+  3) Q's page table entry for this frame. Each page table is indexed via
+  user virtual address. Thus we index into the table and update the following
+  a) Page loc, unmapped or swap; b) swp index, if written to swap;
+  c) kpage to NULL.
+
+  4) P's page table entry. We will a) Set page_loc to MAIN_MEMORY
+  b) Set is swap_index to -1 if it is returning from swap c) The
+  kpage to refer to this frame.
+
+  5) P's pagedir. We must set the mapping from the user virtual address
+  of P to this frame.
+
+  Note that in many situations, these five changes will be done in multiple
+  function calls. For instance, Q might exit and later P might acquire this
+  frame. Thus, first Q would update 2,3. Then, later, P would update 4, 5.
+  In this case 1 would actually be done in two steps. First Q would set the thread *
+  and upage to NULL and pinned to false. Later P would arrive and set the
+  thread * to itself as well set the upage and pin status.
+
+
 >> B4: Explain your heuristic for deciding whether a page fault for an
 >> invalid virtual address should cause the stack to be extended into
 >> the page that faulted.
+
+We have defined a stack size limit (page.h) 1GB or 1073741824 bytes.
+Otherwise the stack could grow into mmaped files or even the executable
+without raising an error. I.e., it could have the final page above the
+excutable. It would then grow the stack onto the executable page. This
+might not page fault, and would act as if that portion of the excutable
+were still mapped. The program would happily continue, overwriting the executable
+with stack data.
+
+Our heuristic is as follows:
+
+If no page entry exists for this upage:
+
+case 1: fault_addr is a lower address then PHYS_BASE but greater then
+or equal to the current esp. We deem this VALID. Stack growth or evicted
+stack being return from swap.
+
+case 2: fault_addr is a lower address then PHYS_BASE & esp, but higher then PHYS_BASE
+- STACK_SIZE_LIMIT, and at either -32 or -4 of the ESP. We deem this VALID.
+This is stack growth done by the push and pusha instructions.
+
+case 3: fault_addr is a lower address then PHYS_BASE & esp, but higher then PHYS_BASE
+- STACK_SIZE_LIMIT, and is not at either -32 or -4 of the ESP. We deem this
+INVALID.
+
+case 4: fault_addr is at any other location. We deem this INVALID.
+
+If a page entry already exists for this page. We deem all these
+page faults VALID. If it is invalid then we have messed up elsewhere.
+
+case 5: Finally if the pointer is NULL or above PHYS_BASE or the faulting party is the
+kernel, we deem this INVALID. Note, this implies we do not allow page faults in system
+calls or the kernel in general. Instead, we map and pin memory before
+we actually page fault in the kernel.
+
 
 ---- SYNCHRONIZATION ----
 
@@ -317,21 +390,133 @@ and use the same swap_index.
 >> textbook for an explanation of the necessary conditions for
 >> deadlock.)
 
+We have three main orderings and then one complicated ordering for evict.
+
+Main ordering 1) Grab the supplemental page table lock of a thread, then grab
+                 the supplemental page entry lock of a single entry.
+
+              2) Grab the frame table lock before grabbing the lock of
+                 a single entry in the frame table.
+
+              3) Grab the exit_lock of a thread before grabbing its
+                 supplementary page table lock.
+If we maintain this consistent ordering then deadlocks should be prevented.
+However, this becomes complicated as we must interweave this three orderings.
+Nowhere is this problem clearer then in evict.
+
+NOTE: Any lock with '(try)' next to it, indicates that lock is acquired via
+lock_try_acquire.
+
+Evict:
+(For convience imagine A is a thread evicting B's frame)
+
+Order:
+
+Acquring:                                 Release
+--------                                  ---------
+A's supplementary page table lock
+A's supplementary page entry lock
+                                          A's supplmentary page table lock
+Frame Table Lock
+
+----------------------------------------------------------------------------------
+Enter a loop searching for a frame to evict, I refer to the owner of each of these
+frames as frame_owner.
+----------------------------------------------------------------------------------
+
+Loop:
+Frame_entry lock (try)
+frame_owner's exit lock (try)
+
+-------------------------------------------------------------------------------
+Decision point: If any of the above three trys fail, release the acquired locks
+and continue.
+-------------------------------------------------------------------------------
+
+                                        Frame Table Lock
+frame_owner's supplementary page table lock
+frame_owner's page entry lock
+                                        frame_owner's supplementary page table lock
+                                        frame_owner's page entry lock
+                                        frame_owner's exit lock
+                                        Frame entry lock
+                                        A's supplementary page entry lock
+
+Eviction complete.
+
+
 >> B6: A page fault in process P can cause another process Q's frame
 >> to be evicted.  How do you ensure that Q cannot access or modify
 >> the page during the eviction process?  How do you avoid a race
 >> between P evicting Q's frame and Q faulting the page back in?
+
+Modifying the frame requires a mapping in the thread's pagedir.
+Modifying either the frame table entry or the supplemental page
+table entry linked to the frame requires the frame table entry lock
+and/or the supplemental page table entry lock.
+
+All threads need to acquire their supplemental page table locks before
+acquiring supplemental page table entry locks. When eviction is in process,
+the evicting process always has either the supplemental page table lock
+or the supplemental page entry lock. The target thread thus will always
+block on either one of the two locks before dereferencing the page being
+evicted. By the time process P releases the page table entry lock,
+Q's pagedir mapping from its user virtual address to the evicted frame
+is already updated and consistent.
+
+Partway through eviction, we remove Q's pagdir mapping from the user virtual
+address and the frame being evicted. Before this, Q can freely write
+to the frame without page faulting or going through any kernel code.
+After we remove the mapping, however, Q will page fault and
+then block on the supplemental page table entry lock for this frame, since
+the evicting process now holds the lock.
+
+Any data now written to the frame will be preserved as the evicting thread
+will write it to the appropriate location as part of the eviciton process.
+Any data the target thread now wishes to write to the same page
+will have to wait until it page faults and can bring that page back into
+memory. At this point, it is as if nothing has changed for thread Q except
+for the time delay in having its memory evicted and then later brough back
+into main memory.
+
 
 >> B7: Suppose a page fault in process P causes a page to be read from
 >> the file system or swap.  How do you ensure that a second process Q
 >> cannot interfere by e.g. attempting to evict the frame while it is
 >> still being read in?
 
+Evict dictates a thread must acquire 3 locks: The supplemental page table (SPT)
+entry lock of its current page-faulting upage, the frame entry lock of
+the frame it wishes to evict, and the SPT entry lock of the target thread's upage
+holding that frame.
+
+Thus, in the above case, when Q wishes to evict from P but P is completing
+I/O, Q would attempt to acquire the relevant page entry lock and block until
+P had completed the I/O. Thread P would already have acquired this supplemental
+page table entry lock.
+
+
 >> B8: Explain how you handle access to paged-out pages that occur
 >> during system calls.  Do you use page faults to bring in pages (as
 >> in user programs), or do you have a mechanism for "locking" frames
 >> into physical memory, or do you use some other design?  How do you
 >> gracefully handle attempted accesses to invalid virtual addresses?
+
+We chose to use a mechanism for locking frames. When a system call occurs
+we call 'map_and_pin' on every user address. This means what it sounds.
+If the memory is absent, we map it in, pinned. If it is present, we
+pin it. We do not evict a page while it is pinned. Thus once the program
+returns from 'map_and_pin' all required addresses are mapped to physical
+memory and will not change until after we have finished using it in the
+system call. At this point we call unpin_pages, which removes this
+enforced locking, just before returning.
+
+In terms of invalid virtual addresses, we exit(-1). This thread is
+attempting to access memory it should not. Thus, akin to in project 2,
+we exit gracefully. A virtual memory address is deemed invalid if it
+neither already has a supplemental page table entry nor represents any
+form of valid stack growth.
+
 
 ---- RATIONALE ----
 
@@ -342,6 +527,52 @@ and use the same swap_index.
 >> where your design falls along this continuum and why you chose to
 >> design it this way.
 
+  Our design falls more along the many-locks end of the spectrum.
+  We have a coarse lock for the frame table and fine locks for each
+  frame table entry. We have a coarse lock for each supplemental
+  page table (SPT) and a fine lock for each SPT entry. We have one
+  global lock for the swap table, one global lock for the file system,
+  and one exit_lock per thread to support our synchronization and
+  parallelism needs.
+
+  The coarse lock for the frame table and the course lock for each
+  SPT are only used during the process of acquiring the fine locks
+  for the frame entries and SPT entries. This is to prevent the
+  synchronization error of two processes attempting to acquire the
+  same entry at once, resulting in a race condition. 
+
+  The fine grain locks both prevent multiple processes from
+  accessing the frame entries and SPT entries at the same time,
+  AND enable better parallelism by allowing multiple processes
+  to use different sections of the frame table and SPT at the same
+  time.
+
+  We require a global lock for the swap table to prevent multiple
+  processes from attempting to acquire the same swap slot. We also
+  know that bitmaps do not support internal concurrency, so a lock
+  every time we access the swap table is logical.
+
+  We require a global lock for the file system because the file
+  system does not support internal concurrency. 
+
+  We also required an exit lock per thread to synchronize the
+  mechanisms of exiting and evicting. A thread that is finding
+  a frame to evict should not choose a frame, only to realize
+  the owner thread is in the process of removing it.
+
+  Overall, our design strategy is to support fine grain locks where
+  possible, so as to maximize our level of parallelism. We utilize 
+  coarse locks to synchronize the data structures until those fine 
+  grain locks can be acquired. For data structures such as the swap 
+  table, we do not need fine grain locks because each operation only
+  involves setting bits. It would also be hard to implement find grain
+  locking on the file system because of the unbounded size of 
+  individual files. Our locking orders are consistent across the 
+  operating system to prevent deadlocks.
+  More details about the locking order can be found in our answer to 
+  question B5.
+
+
        MEMORY MAPPED FILES
        ===================
 
@@ -351,14 +582,128 @@ and use the same swap_index.
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+  Newly declared in thread.h:
+  
+  struct thread {
+  ...
+
+  ...
+
+  struct mmap_entry mmap_files[MAX_FD_INDEX+1]; (thread.h)
+  This array of mmap_entry structs keeps track of mmaped files by 
+  their file descriptor, which maps one to one with the indices
+  of this array. The indices here are the same as those in the
+  open_files array also stored in the thread struct. 
+  We use this array also to store a file's location and length
+  in memory, to ensure that there are no conflicting memory mappings
+  across any mmapped files for this thread.
+
+  void *exec_addr;
+  We store the address of the current executable in order to check
+  that any files we mmap do not overlap with the executable.
+  We use exec_addr to find the beginning of the bounds of the 
+  executable.
+ 
+  int exec_length;
+  exec_length is the length of the executable file. We use this
+  to find the end of the boundary for the executable when we check
+  to make sure the file being mmapped does not overlap with the 
+  executable.
+  ...
+
+  ...
+
+  }
+
+  Declared at the top of thread.h:
+
+  struct mmap_entry {
+    struct file *file;
+    This variable stores a pointer to the file struct that represents
+    the file that gets mmapped. This file struct is separate from
+    the file struct in the open_files array, to facilitate
+    persistence of the mmapped memory after the file has been closed.
+    
+    void *addr;
+    addr points to the address of file mmapped. Used to check 
+    boundaries and make sure there is no intersection between
+    the current file mapping and other file mappings. 
+    
+    int length; 
+    This variable keeps track of the length of mmapped file in bytes.
+    We use length to determine the end of the mmapped file when 
+    checking for overlaps between new mmapped files and currently
+    mmapped files.
+  }
+
+
 ---- ALGORITHMS ----
 
 >> C2: Describe how memory mapped files integrate into your virtual
 >> memory subsystem.  Explain how the page fault and eviction
 >> processes differ between swap pages and other pages.
 
+  Memory mapped files are mapped somewhere between the data segment
+  and the stack segment. Since the user virtual address of the mapping
+  must be predefined by the user, we do checking in the mmap
+  functionality to ensure that it does not overlap with any
+  executable file data in memory, any previously mmapped files data
+  in memory, or anything in the stack segment (above the stack
+  boundary).
+
+  Once mapped, we treat memory mapped files the same as regular pages
+  in the page fault handler, in the sense that they go through the
+  same set of cascading if-statements to determine if the memory is
+  valid and should be mapped into main memory.  
+
+  Pages that can be swapped include stack pages and executable memory
+  pages that are not zeroed. Mmapped files cannot be swapped to disk.
+
+  Upon page fault and determining that eviction is necessary, the
+  operating system will first select a valid frame to evict.
+  After selecting a valid frame to evict, depending on the type of
+  the page stored in that frame (information looked up in the target
+  thread's supplemental page table), the OS will either swap that
+  page out to swap disk, write it to a file on the hard disk, or
+  simply discard it.
+
+  Pages that can be swapped, as defined above, will first be swapped
+  out to swap disk before any requested memory is brought into the
+  target frame.
+
+  For pages that cannot be swapped, such as mmap pages, the data
+  will be written directly to the file system, before the requested
+  memory is paged in.
+
+  In the case of zeroed memory it will simply be discarded.
+
+  For both types of pages (swap and no swap), the eviction policy of
+  choosing which frame to evict is the same. The only differences
+  are in where those pages are evicted to, as outlined above.
+
+
 >> C3: Explain how you determine whether a new file mapping overlaps
 >> any existing segment.
+
+  We check first to make sure that a new file mapping does not 
+  overlap with other mmapped files by iterating through our array
+  of mmap_entries and checking that if there is a mmapped file at
+  each index, its boundaries do not intersect with those of the new 
+  file mapping. To check intersection, we obtain the beginning and 
+  end addresses of this mmapped file and check if our new file 
+  mapping's beginning or end addresses fall between them. 
+
+  After making sure the file we are mmapping does not overlap with 
+  other mmaped files, we also check it does not overlap with the 
+  executable. We check this by determining if the beginning or end
+  of the file being mapped fall within the beginning and end bounds
+  of the executable file mapped in memory. 
+
+  Last, we also determine that the bounds of the new mapping 
+  (beginning and end) do not cross the boundary of the stack limit,
+  which we set to be one gigabyte below PHYS_BASE, nor cross
+  above PHYS_BASE.
+
 
 ---- RATIONALE ----
 
@@ -368,6 +713,29 @@ and use the same swap_index.
 >> that much of their implementation can be shared.  Explain why your
 >> implementation either does or does not share much of the code for
 >> the two situations.
+
+  Our implementation of mmap does have a certain amount of code
+  similar to that of data demand paging from executables. The overall
+  structure is similiar as we needed to iterate through the file and 
+  add a new entry into our supplemental page table for each page of
+  memory, and account for zeroing out unused bytes, if any, on the
+  last page. In both cases we stored all these details in our 
+  supplemental page table entries. We decided not to share code
+  between both functionalities because of the small size of the
+  code for the loops, and small differences such as page_type.
+
+  There are also a few necessary differences in the mmap code. 
+  For instance, in mmap we must check that the combination of the 
+  address passed by the user process and the file indicated by the 
+  fd, will not generate a mapping that overlaps with any other. 
+  In addition, in mmap we must check that the fd is valid, that the
+  length of the file is not 0, and that the address is not 0 and is
+  page aligned.
+
+  This could be done in a wrapper function that calls the shared code
+  used in load_segment, but since the shared code body was relatively
+  small and did have differences, we decided to neglect it.
+
 
          SURVEY QUESTIONS
          ================
@@ -380,9 +748,11 @@ the quarter.
 
 >> In your opinion, was this assignment, or any one of the three problems
 >> in it, too easy or too hard?  Did it take too long or too little time?
+really hard. took really long. not sure if it was worth it!
 
 >> Did you find that working on a particular part of the assignment gave
 >> you greater insight into some aspect of OS design?
+working on eviction gave me better insight. race conditions were incredibly hard.
 
 >> Is there some particular fact or hint we should give students in
 >> future quarters to help them solve the problems?  Conversely, did you
