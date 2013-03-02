@@ -101,67 +101,73 @@ struct sup_page_entry {
   need to start reading. This value must be page aligned.
 
   bool zeroed;
-  This is used when loading a page to determine when we need a page that is initialized
-  to zero when palloc'ed. It is also used to detect when we do not wish to write a page
-  to swap. If the page is read to, the zeroed bit is set to false.
+  This is used when loading a page to determine when we need a page that is 
+  initialized to zero when palloc'ed. It is also used to detect when we do 
+  not wish to write a page to swap. If the page is read to, the zeroed bit is 
+  set to false.
 
   bool writable;
-  This bool does not change throughout the lifetime of this supplemental page table
-  entry. Stack pages are always writable. Executable and file pages are writable
-  depending on the file permissions passed in during load and open file respectively.
+  This bool does not change throughout the lifetime of this supplemental 
+  page table entry. Stack pages are always writable. Executable and file 
+  pages are writable depending on the file permissions passed in during 
+  load and open file respectively.
 
   bool written;
-  This bool is used to supplement pagedir_is_dirty. We found there were some errors when
-  a page was written to swap, written back to memory, then back to swap again. For some
-  reason when written back to memory the dirty bit was removed, resulting in the written
-  data being removed the next time it was evicted.
+  This bool is used to supplement pagedir_is_dirty. We found there were some 
+  errors when a page was written to swap, written back to memory, then back 
+  to swap again. For some reason when written back to memory the dirty bit 
+  was removed, resulting in the written data being removed the next time it 
+  was evicted.
 
   struct lock lock;
-  This lock locks the supplemental page table entry. It prevents any accesses to the
-  particular entry while it is in an inconsistent state. In particular, this is helpful
-  when doing I/Os, because it prevents any accessing threads from attempting to access
-  this data during the I/O.
+  This lock locks the supplemental page table entry. It prevents any accesses 
+  to the particular entry while it is in an inconsistent state. In particular, 
+  this is helpful when doing I/Os, because it prevents any accessing threads 
+  from attempting to access this data during the I/O.
 };
 
 FRAME.H:
 
 struct frame_entry {
   struct lock lock;
-  This is a fine lock for the frame entry so that no thread can access the frame entry
-  in an inconsistent / corrupted state. It is acquired after acquiring the frame table
-  lock and held throughout the duration of any modifications to the frame.
+  This is a fine lock for the frame entry so that no thread can access the 
+  frame entry in an inconsistent / corrupted state. It is acquired after 
+  acquiring the frame table lock and held throughout the duration of any
+  modifications to the frame.
 
   struct thread *thread;  // to access the thread's pagedir
-  This holds a pointer to the current owner thread of this frame. It is primarily used 
-  when we wish to see attributes of this page's page directory entry, utilized in tandem
-  with upage below. When a thread exits or this frame because free, the thread pointer is
-  set to NULL.
+  This holds a pointer to the current owner thread of this frame. It is 
+  primarily used when we wish to see attributes of this page's page directory 
+  entry, utilized in tandem with upage below. When a thread exits or this 
+  frame because free, the thread pointer is set to NULL.
 
   void *upage;            // to access the entry in thread's pagedir
-  This holds the current user virtual address belonging to the owner thread of this frame.
-  It is used in tandem with the pointer to the owner thread to do lookups in the thread's
-  page directory for accesss and dirty bits.
+  This holds the current user virtual address belonging to the owner thread 
+  of this frame. It is used in tandem with the pointer to the owner thread 
+  to do lookups in the thread's page directory for accesss and dirty bits.
 
   bool pinned;         // If true, pinned by the kernel, do not evict
-  This is a flag that the kernel sets in system calls to prevent pages from being evicted
-  just after they have been moved into main memory. The pinning procedure is necessary to
-  prevent page faulting in the kernel, because in the kernel we check and map memory into 
-  physical memory prior to dereferencing it.
+  This is a flag that the kernel sets in system calls to prevent pages from 
+  being evicted just after they have been moved into main memory. The pinning 
+  procedure is necessary to prevent page faulting in the kernel, because in 
+  the kernel we check and map memory into physical memory prior to 
+  dereferencing it.
 };
 
 FRAME.C:
 
 #define FREE_PAGES_START_OFFSET 1024 * 1024
-This is a macro we use to keep track of the initial offset that the program uses in
-palloc.c as the start of virtual memory. We decided to use this offset to do 
-kpage-frame_entry translations in frame.c instead of palloc.c to keep the frame members 
-local to the frame files.
+This is a macro we use to keep track of the initial offset that the program 
+uses in palloc.c as the start of virtual memory. We decided to use this offset 
+to do kpage-frame_entry translations in frame.c instead of palloc.c to keep 
+the frame members local to the frame files.
 
 static struct frame_entry *frame_table;
-The frame_table is the data structure responsible for representing main memory and which
-pages currently reside in it. It is implemented using an array. It is mainly used for the 
-process of eviction, where we iterate over the frame table and evict frames that have not 
-been accessed since the last iteration. It's entries are frame_entries.
+The frame_table is the data structure responsible for representing main 
+memory and which pages currently reside in it. It is implemented using 
+an array. It is mainly used for the process of eviction, where we iterate 
+over the frame table and evict frames that have not been accessed since 
+the last iteration. It's entries are frame_entries.
 
 static struct lock frame_table_lock;  // only used in clock algorithm
 static int num_user_pages;            // only used in clock algorithm
@@ -173,28 +179,31 @@ struct thread {
     ...
 
     struct lock sup_page_table_lock;
-    This lock locks the entire supplemental page table. It is used exclusively to lock
-    the page table while we retrieve the supplemental page table entry, so that we
-    do not get inconsistent behavior with the hash table, nor have race conditions
-    between two threads trying to access an entry.
+    This lock locks the entire supplemental page table. It is used exclusively 
+    to lock the page table while we retrieve the supplemental page table 
+    entry, so that we do not get inconsistent behavior with the hash table, 
+    nor have race conditions between two threads trying to access an entry.
 
     struct hash *sup_page_table;
-    The supplemental page table (SPT)  is stored in a hash table implementation. The keys
-    to this hash table are user virtual addressses, and they are stored inside the
-    values, which are struct sup_page_entrys. The SPT is the core of our virtual 
-    memory system. Every access to virtual memory goes through the SPT.
+    The supplemental page table (SPT)  is stored in a hash table 
+    implementation. The keys to this hash table are user virtual addressses, 
+    and they are stored inside the values, which are struct sup_page_entrys. 
+    The SPT is the core of our virtual memory system. Every access to virtual 
+    memory goes through the SPT.
 
     void *esp;
-    This is set in the system call handler in order to verify attempts at stack growth
-    without passing the esp parameter in between all syscall functions. It is used to 
-    check whether a memory address is attempting to grow the stack.
+    This is set in the system call handler in order to verify attempts at 
+    stack growth without passing the esp parameter in between all syscall 
+    functions. It is used to check whether a memory address is attempting 
+    to grow the stack.
 
     struct lock exit_lock; // used to synchronize eviction during exit 
-    The exit lock is used to synchronize eviction during exit. It prevents the eviction
-    algorithm from selecting a frame to evict just as the thread that owns that frame is
-    exiting, thereby clearing the frame just before we try to write the data to swap.
-    Using the lock allows the eviction algorithm to skip over frames when they cannot
-    acquire the owner thread's exit lock.
+    The exit lock is used to synchronize eviction during exit. It prevents 
+    the eviction algorithm from selecting a frame to evict just as the thread 
+    that owns that frame is exiting, thereby clearing the frame just before 
+    we try to write the data to swap. Using the lock allows the eviction 
+    algorithm to skip over frames when they cannot acquire the owner 
+    thread's exit lock.
 };
 
 
@@ -203,64 +212,70 @@ struct thread {
 >> A2: In a few paragraphs, describe your code for locating the frame,
 >> if any, that contains the data of a given page.
 
-We allocate our frame table in frame_init() which is called in init.c. It remains in
-kernel memory for the duration of the operating system's run. To locate the frame that
-contains the data of a given page we always use the function kpage_to_frame_entry, which
-takes in a kpage as a parameter and translates that with math and the threads/vaddr.h
-function vtop to a frame index, before returning the frame entry corresponding to that
-index. 
+We allocate our frame table in frame_init() which is called in init.c. 
+It remains in kernel memory for the duration of the operating system's 
+run. To locate the frame that contains the data of a given page we always 
+use the function kpage_to_frame_entry, which takes in a kpage as a parameter 
+and translates that with math and the threads/vaddr.h function vtop to a 
+frame index, before returning the frame entry corresponding to that index. 
 
-The math works as follows: we first subtract PHYS_BASE through vtop, then subtract the
-space required by kernel pages, then subtract the FREE_PAGES_START_OFFSET used during
-the palloc_init function in palloc.c. Dividing the result by PGSIZE yields the
-corresponding index of our frame table.
+The math works as follows: we first subtract PHYS_BASE through vtop, 
+then subtract the space required by kernel pages, then subtract the 
+FREE_PAGES_START_OFFSET used during the palloc_init function in palloc.c. 
+Dividing the result by PGSIZE yields the corresponding index of our frame 
+table.
 
 >> A3: How does your code coordinate accessed and dirty bits between
 >> kernel and user virtual addresses that alias a single frame, or
 >> alternatively how do you avoid the issue?
 
-We avoid this issue by always referencing accessed and dirty bits from the user virtual
-address. Every time we wish to see if a page is accessed or dirty, we look up the
-corresponding entry in the owner thread's page directory with pagedir_is_accessed
-or pagedir_is_dirty functions, using the owner thread's page directory and user virtual
-address as parameters.
+We avoid this issue by always referencing accessed and dirty bits from 
+the user virtual address. Every time we wish to see if a page is accessed 
+or dirty, we look up the corresponding entry in the owner thread's page 
+directory with pagedir_is_accessed or pagedir_is_dirty functions, using 
+the owner thread's page directory and user virtual address as parameters.
 
 ---- SYNCHRONIZATION ----
 
 >> A4: When two user processes both need a new frame at the same time,
 >> how are races avoided?
 
-When two user processes both need a new frame at the same time, we avoid such races
-with the coarse frame_table_lock. All processes that need a new frame will go through the
-choke point of frame_add, which first acquires the frame_table_lock until it secures a
-frame that is free or has been freed through eviction. Thus no two processes can be
-searching for a free frame at the same time. Once one processes selects a frame
-and has grabbed the fine frame_entry lock, it immediately releases the frame_table_lock
-to maximize concurrency.
+When two user processes both need a new frame at the same time, we avoid 
+such races with the coarse frame_table_lock. All processes that need a new 
+frame will go through the choke point of frame_add, which first acquires 
+the frame_table_lock until it secures a frame that is free or has been freed 
+through eviction. Thus no two processes can be searching for a free frame at 
+the same time. Once one processes selects a frame and has grabbed the fine 
+frame_entry lock, it immediately releases the frame_table_lock to maximize 
+concurrency.
 
 ---- RATIONALE ----
 
 >> A5: Why did you choose the data structure(s) that you did for
 >> representing virtual-to-physical mappings?
 
-We chose to implement the supplemental page table (SPT) with a hash table, and the frame 
-table with an array. The hash table is useful for looking up items in theoretically
-constant time based on a key. In practice the implementation may be a little slower due
-to chaining. The array is most useful for fast indexing, since all entries in the array 
-correspond to contiguous pages in kernel virtual memory. An additional benefit of the array
-is easy iteration with a for loop.
+We chose to implement the supplemental page table (SPT) with a hash table, 
+and the frame table with an array. The hash table is useful for looking up 
+items in theoretically constant time based on a key. In practice the 
+implementation may be a little slower due to chaining. The array is most 
+useful for fast indexing, since all entries in the array correspond to 
+contiguous pages in kernel virtual memory. An additional benefit of the 
+array is easy iteration with a for loop.
 
-When a process page_faults, it is trying to dereference some user virtual memory address,
-referred to in our code with "upage". Using upages as keys, we can take these page faults
-and in constant time lookup all relevant data regarding this page. This is the power of
-the SPT. If the page is currently not in memory, the kpage value of the SPT entry will be 
-NULL. If the page needs to be brought into memory, the process will run through our 
-frame_add mechanism which attempts to palloc a page and bring that page into physical 
-memory. Once a page is palloc'ed or a frame is evicted, the relevant kernel virtual 
-address, referred to in our code with "kpage", will then be stored in the SPT entry.
+When a process page_faults, it is trying to dereference some user virtual 
+memory address, referred to in our code with "upage". Using upages as 
+keys, we can take these page faults and in constant time lookup all 
+relevant data regarding this page. This is the power of the SPT. If the 
+page is currently not in memory, the kpage value of the SPT entry will be 
+NULL. If the page needs to be brought into memory, the process will run 
+through our frame_add mechanism which attempts to palloc a page and 
+bring that page into physical memory. Once a page is palloc'ed or a 
+frame is evicted, the relevant kernel virtual address, referred to in 
+our code with "kpage", will then be stored in the SPT entry.
 
 Our SPT's efficiency comes from its constant lookup based on upage.
-Our frame table can both be indexed in constant time and iterated in linear time.
+Our frame table can both be indexed in constant time and iterated in 
+linear time.
 
 
            PAGING TO AND FROM DISK
@@ -275,25 +290,27 @@ Our frame table can both be indexed in constant time and iterated in linear time
 SWAP.H:
 
 #define SECTORS_PER_PAGE 8
-This is used in our swap_read_page and swap_write_page functions to convert from the
-bits in the bitmap that each represent a page to the sectors on disk. Whenever we read
-and write from disk we do it in for loops that go SECTORS_PER_PAGE iterations, because
-the block_read and block_write functions only support sector-size reading and writing
-functionalities.
+This is used in our swap_read_page and swap_write_page functions to convert 
+from the bits in the bitmap that each represent a page to the sectors on 
+disk. Whenever we read and write from disk we do it in for loops that go 
+SECTORS_PER_PAGE iterations, because the block_read and block_write 
+functions only support sector-size reading and writing functionalities.
 
 SWAP.C:
 
 struct bitmap *swap_table;
-The swap table is used to identify which pages on swap disk have currently been used. It
-is stored as a bitmap because we only need to know which pages on swap disk currently store
-data. Each bit in the table represents a page of data.
+The swap table is used to identify which pages on swap disk have currently 
+been used. It is stored as a bitmap because we only need to know which 
+pages on swap disk currently store data. Each bit in the table represents 
+a page of data.
 
 struct lock swap_table_lock;
-The swap table lock is used whenever performing bitmap operations on the swap_table.
-This is used to prevent corrupting the bitmap and leaving it in an inconsistent state,
-because bitmaps do not support internal concurrency. It is particularly necessary when
-performing bitmap_scan_and_flip to find the next swap_index, so no two processes will try
-and use the same swap_index.
+The swap table lock is used whenever performing bitmap operations on the 
+swap_table. This is used to prevent corrupting the bitmap and leaving 
+it in an inconsistent state, because bitmaps do not support internal 
+concurrency. It is particularly necessary when performing 
+bitmap_scan_and_flip to find the next swap_index, so no two processes 
+will try and use the same swap_index.
 
 ---- ALGORITHMS ----
 
@@ -339,9 +356,9 @@ We update four structures:
   Note that in many situations, these five changes will be done in multiple
   function calls. For instance, Q might exit and later P might acquire this
   frame. Thus, first Q would update 2,3. Then, later, P would update 4, 5.
-  In this case 1 would actually be done in two steps. First Q would set the thread *
-  and upage to NULL and pinned to false. Later P would arrive and set the
-  thread * to itself as well set the upage and pin status.
+  In this case 1 would actually be done in two steps. First Q would set the 
+  thread * and upage to NULL and pinned to false. Later P would arrive and 
+  set the thread * to itself as well set the upage and pin status.
 
 
 >> B4: Explain your heuristic for deciding whether a page fault for an
@@ -353,8 +370,8 @@ Otherwise the stack could grow into mmaped files or even the executable
 without raising an error. I.e., it could have the final page above the
 excutable. It would then grow the stack onto the executable page. This
 might not page fault, and would act as if that portion of the excutable
-were still mapped. The program would happily continue, overwriting the executable
-with stack data.
+were still mapped. The program would happily continue, overwriting the 
+executable with stack data.
 
 Our heuristic is as follows:
 
@@ -364,23 +381,23 @@ case 1: fault_addr is a lower address then PHYS_BASE but greater then
 or equal to the current esp. We deem this VALID. Stack growth or evicted
 stack being return from swap.
 
-case 2: fault_addr is a lower address then PHYS_BASE & esp, but higher then PHYS_BASE
-- STACK_SIZE_LIMIT, and at either -32 or -4 of the ESP. We deem this VALID.
-This is stack growth done by the push and pusha instructions.
+case 2: fault_addr is a lower address then PHYS_BASE & esp, but higher then 
+PHYS_BASE - STACK_SIZE_LIMIT, and at either -32 or -4 of the ESP. We deem 
+this VALID. This is stack growth done by the push and pusha instructions.
 
-case 3: fault_addr is a lower address then PHYS_BASE & esp, but higher then PHYS_BASE
-- STACK_SIZE_LIMIT, and is not at either -32 or -4 of the ESP. We deem this
-INVALID.
+case 3: fault_addr is a lower address then PHYS_BASE & esp, but higher then 
+PHYS_BASE - STACK_SIZE_LIMIT, and is not at either -32 or -4 of the ESP. 
+We deem this INVALID.
 
 case 4: fault_addr is at any other location. We deem this INVALID.
 
 If a page entry already exists for this page. We deem all these
 page faults VALID. If it is invalid then we have messed up elsewhere.
 
-case 5: Finally if the pointer is NULL or above PHYS_BASE or the faulting party is the
-kernel, we deem this INVALID. Note, this implies we do not allow page faults in system
-calls or the kernel in general. Instead, we map and pin memory before
-we actually page fault in the kernel.
+case 5: Finally if the pointer is NULL or above PHYS_BASE or the faulting 
+party is the kernel, we deem this INVALID. Note, this implies we do not 
+allow page faults in system calls or the kernel in general. Instead, we 
+map and pin memory before we actually page fault in the kernel.
 
 
 ---- SYNCHRONIZATION ----
@@ -419,10 +436,10 @@ A's supplementary page entry lock
                                           A's supplmentary page table lock
 Frame Table Lock
 
-----------------------------------------------------------------------------------
-Enter a loop searching for a frame to evict, I refer to the owner of each of these
-frames as frame_owner.
-----------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+Enter a loop searching for a frame to evict, I refer to the owner of each of 
+these frames as frame_owner.
+-------------------------------------------------------------------------------
 
 Loop:
 Frame_entry lock (try)
@@ -436,7 +453,7 @@ and continue.
                                         Frame Table Lock
 frame_owner's supplementary page table lock
 frame_owner's page entry lock
-                                        frame_owner's supplementary page table lock
+                                        frame_owner's supp page table lock
                                         frame_owner's page entry lock
                                         frame_owner's exit lock
                                         Frame entry lock
