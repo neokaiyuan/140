@@ -33,7 +33,7 @@ frame_init (size_t user_page_limit)
 
   int i;
   for (i = 0; i < (int) num_user_pages; i++) {
-    struct frame_entry *entry = &frame_table[i]; // used every time we access a frame entry
+    struct frame_entry *entry = &frame_table[i]; // used on frame entry access
     lock_init (&entry->lock);
   }
 }
@@ -61,24 +61,18 @@ static void *
 evict (struct sup_page_entry *page_entry, bool pinned)
 {
   struct thread *t = thread_current ();
-
-  int i;
-  int saved_index = 1; //Palloc uses page 0 of user memory for bookkeeping overhead
+  struct frame_entry *evict_entry = NULL;
 
   while (true) {
-  struct frame_entry *evict_entry = NULL;
-  if (i == num_user_pages || saved_index == num_user_pages)
-    saved_index = 1;
 
-    for (i = saved_index; i < num_user_pages; i++) {  // frame entries start at 1
+    int i;
+    for (i = 1; i < num_user_pages; i++) {  // frame entries start at 1
       struct frame_entry *entry = &frame_table[i];
       if (lock_try_acquire (&entry->lock)) {
 
-        if (entry->thread == NULL) {
+        if (entry->thread == NULL) {  // found an empty frame
           void *kpage = palloc_get_page (PAL_USER);
           kpage = pg_round_down (kpage);
-          ASSERT (kpage != NULL);
-          ASSERT (kpage == frame_entry_to_kpage (entry));
           pagedir_set_page (t->pagedir, page_entry->upage, kpage, 
                             page_entry->writable);
           entry->thread = t;
@@ -91,7 +85,8 @@ evict (struct sup_page_entry *page_entry, bool pinned)
 
         if (pagedir_is_accessed (entry->thread->pagedir, entry->upage)) {
           pagedir_set_accessed (entry->thread->pagedir, entry->upage, false);
-        } else if (!entry->pinned) {
+
+        } else if (!entry->pinned) { // frame neither accessed nor pinned
 
           if (!lock_try_acquire (&entry->thread->exit_lock)) { // target exit
             lock_release (&entry->lock);
@@ -101,22 +96,17 @@ evict (struct sup_page_entry *page_entry, bool pinned)
           lock_release (&frame_table_lock);
           break;
         } 
+
         lock_release (&entry->lock);
       }
     }
 
     if (evict_entry != NULL) { 
 
-      /* Entering page evict have evicting thread's supp entry lock and the
-      frame entry lock for thread being evicted as well as its exit lock.
-
-      page evict must acquire the evicted supp entry lock, and release the 
-      supp page table lock before doing I/O */ 
       page_evict (evict_entry->thread, evict_entry->upage);  
-
       lock_release (&evict_entry->thread->exit_lock);
 
-      evict_entry->thread = thread_current ();
+      evict_entry->thread = t;
       evict_entry->upage = page_entry->upage;
       evict_entry->pinned = pinned;
 
@@ -125,9 +115,6 @@ evict (struct sup_page_entry *page_entry, bool pinned)
     }
 
   }
-
-  lock_release (&frame_table_lock);
-  return NULL;
 }
 
 /* allocates page in physical memory for a specific thread's virtual memory 
@@ -145,11 +132,13 @@ frame_add (struct sup_page_entry *page_entry, bool pinned)
 
     kpage = evict (page_entry, pinned);
     if (pagedir_get_page (t->pagedir, page_entry->upage) == NULL)
-      pagedir_set_page (t->pagedir, page_entry->upage, kpage, page_entry->writable);
+      pagedir_set_page (t->pagedir, page_entry->upage, kpage, 
+                        page_entry->writable);
 
   } else {
 
-    pagedir_set_page (t->pagedir, page_entry->upage, kpage, page_entry->writable);
+    pagedir_set_page (t->pagedir, page_entry->upage, kpage, 
+                      page_entry->writable);
 
     kpage = pg_round_down (kpage);
     struct frame_entry *frame_entry = kpage_to_frame_entry (kpage);
@@ -174,7 +163,7 @@ frame_remove (void *kpage)
 
   lock_acquire (&entry->lock);
   
-  palloc_free_page (kpage); // MAY NOT FREE WHEN EVICTION HAPPENING
+  palloc_free_page (kpage);
   entry->upage = entry->thread = NULL;
   entry->pinned = false;
 
@@ -213,7 +202,7 @@ frame_pin (const void *upage)
 }
 
 bool
-frame_unpin (void *upage) 
+frame_unpin (const void *upage) 
 {
   return set_pin_status (upage, false);
 }

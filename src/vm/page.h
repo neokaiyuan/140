@@ -18,7 +18,7 @@ enum page_type {
 };
 
 struct sup_page_entry {
-  void *upage;            //  user virtual address
+  const void *upage;            //  user virtual address
   struct hash_elem elem;
 
   void *kpage;          // to access relevant entry in frame_table 
@@ -27,7 +27,7 @@ struct sup_page_entry {
 
   int swap_index;
 
-  int page_read_bytes;  // only applies to executables
+  int page_read_bytes;  // only applies to executables and files
 
   struct file *file;
   int file_offset;
@@ -48,12 +48,12 @@ void page_add_entry (struct hash *sup_page_table, const void *upage,
                      int file_offset, bool zeroed, bool writable);
 void page_remove_entry (void *upage);
 
-void page_evict (struct thread *t, void *upage);
+void page_evict (struct thread *t, const void *upage);
 
 /*Mapping or unmapping a uaddr, this must already have a valid entry in the
   supp page table */
 void *page_map (const void *upage, bool pinned);
-void page_unmap_via_entry (struct thread *t, struct sup_page_entry *entry); //Not concurrency safe
+void page_unmap_via_entry (struct thread *t, struct sup_page_entry *entry);
 void page_unmap_via_upage (struct thread *t, void *upage);
 
 /* Checking the status of pages */

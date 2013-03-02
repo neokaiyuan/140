@@ -10,7 +10,8 @@ struct lock swap_table_lock;
 void 
 swap_init ()
 {
-  int size_in_pages = block_size (block_get_role (BLOCK_SWAP)) / SECTORS_PER_PAGE;
+  int size_in_pages = block_size (block_get_role (BLOCK_SWAP)) / 
+                                  SECTORS_PER_PAGE;
   swap_table = bitmap_create (size_in_pages);
   ASSERT (swap_table != NULL);
   lock_init (&swap_table_lock);
@@ -40,7 +41,7 @@ swap_write_page (void *buffer)
   lock_acquire (&swap_table_lock);
   int swap_index = bitmap_scan_and_flip (swap_table, 0, 1, false);
   lock_release (&swap_table_lock);
-  ASSERT (swap_index != BITMAP_ERROR);
+  ASSERT ((unsigned) swap_index != BITMAP_ERROR);
 
   int i;
   for (i = 0; i < SECTORS_PER_PAGE; i++) {

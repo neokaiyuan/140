@@ -97,9 +97,14 @@ page_remove_entry (void *upage)
   lock_release (&t->sup_page_table_lock);
 }
 
-/* updates the sup page table and pagedir during eviction */
+/* Updates the sup page table and pagedir during eviction.
+   Entering page evict have evicting thread's supp entry lock and the
+   frame entry lock for thread being evicted as well as its exit lock.
+
+   page evict must acquire the evicted supp entry lock, and release the 
+   supp page table lock before doing I/O */
 void
-page_evict (struct thread *t, void *upage)
+page_evict (struct thread *t, const void *upage)
 {
   pagedir_clear_page (t->pagedir, upage); // t cannot access during evict
 

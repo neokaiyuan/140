@@ -163,7 +163,7 @@ unpin_pages (const void *upage, int size)
   int page_num_first_byte = (unsigned) upage / PGSIZE;
   int page_num_last_byte = (unsigned) last_byte / PGSIZE;
   int pages_in_between = page_num_first_byte - page_num_last_byte;
-  void *curr_page = upage;
+  const void *curr_page = upage;
 
   int i;
   for (i = 0; i < pages_in_between + 1; i++) {

@@ -504,8 +504,8 @@ into main memory.
 
 Evict dictates a thread must acquire 3 locks: The supplemental page table (SPT)
 entry lock of its current page-faulting upage, the frame entry lock of
-the frame it wishes to evict, and the SPT entry lock of the target thread's upage
-holding that frame.
+the frame it wishes to evict, and the SPT entry lock of the target thread's 
+upage holding that frame.
 
 Thus, in the above case, when Q wishes to evict from P but P is completing
 I/O, Q would attempt to acquire the relevant page entry lock and block until

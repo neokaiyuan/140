@@ -96,7 +96,7 @@ lookup_page (uint32_t *pd, const void *vaddr, bool create)
    Returns true if successful, false if memory allocation
    failed. */
 bool
-pagedir_set_page (uint32_t *pd, void *upage, void *kpage, bool writable)
+pagedir_set_page (uint32_t *pd, const void *upage, void *kpage, bool writable)
 {
   uint32_t *pte;
 
@@ -141,7 +141,7 @@ pagedir_get_page (uint32_t *pd, const void *uaddr)
    bits in the page table entry are preserved.
    UPAGE need not be mapped. */
 void
-pagedir_clear_page (uint32_t *pd, void *upage) 
+pagedir_clear_page (uint32_t *pd, const void *upage) 
 {
   uint32_t *pte;
 
@@ -228,12 +228,6 @@ pagedir_activate (uint32_t *pd)
      to/from Control Registers" and [IA32-v3a] 3.7.5 "Base
      Address of the Page Directory". */
   asm volatile ("movl %0, %%cr3" : : "r" (vtop (pd)) : "memory");
-}
-
-uint32_t *
-current_pd (void) {
-  return active_pd ();
-
 }
 
 /* Returns the currently active page directory. */
