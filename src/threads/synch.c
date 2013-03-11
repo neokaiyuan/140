@@ -207,8 +207,9 @@ lock_acquire (struct lock *lock)
   ASSERT (!lock_held_by_current_thread (lock));
  	
 	old_level = intr_disable();
+
+  // priority donation
   if (!thread_mlfqs) {
-    //Priority Donation	
 	  struct thread *lockHolder = lock->holder;
     struct thread *lockWanter = thread_current();
 	
@@ -229,6 +230,7 @@ lock_acquire (struct lock *lock)
   list_push_back (&thread_current()->locksHeld, &lock->elem);
   lock->holder = thread_current ();	
   lock->holder->lockDesired = NULL;
+
   intr_set_level (old_level);
 }
 
@@ -248,6 +250,7 @@ lock_try_acquire (struct lock *lock)
 
   success = sema_try_down (&lock->semaphore);
   if (success)
+    list_push_back (&thread_current()->locksHeld, &lock->elem);
     lock->holder = thread_current ();
   return success;
 }
