@@ -5,8 +5,6 @@
 #include "filesys/off_t.h"
 #include "devices/block.h"
 
-struct bitmap;
-
 void inode_init (void);
 bool inode_create (block_sector_t, off_t);
 struct inode *inode_open (block_sector_t);
