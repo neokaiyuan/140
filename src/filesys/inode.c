@@ -279,6 +279,8 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
     else
       memcpy (ce->data + sector_ofs, buffer + bytes_written, chunk_size);
 
+    ce->dirty = true;
+
     /* Advance. */
     size -= chunk_size;
     offset += chunk_size;
