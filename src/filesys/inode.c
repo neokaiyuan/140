@@ -3,6 +3,7 @@
 #include <debug.h>
 #include <round.h>
 #include <string.h>
+#include "filesys/cache.h"
 #include "filesys/filesys.h"
 #include "filesys/free-map.h"
 #include "threads/malloc.h"
@@ -267,7 +268,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
     if (chunk_size <= 0)
       break;
 
-    cache_entry *ce = cache_find (sector_idx);
+    struct cache_entry *ce = cache_find (sector_idx);
     if (ce == NULL)
       ce = cache_add (sector_idx);
     if (ce == NULL)

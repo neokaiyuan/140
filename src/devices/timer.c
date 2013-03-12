@@ -4,7 +4,6 @@
 #include <round.h>
 #include <stdio.h>
 #include "devices/pit.h"
-#include "filesys/cache.h"
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
@@ -17,8 +16,6 @@
 #if TIMER_FREQ > 1000
 #error TIMER_FREQ <= 1000 recommended
 #endif
-
-#define FLUSH_FREQ 3000
 
 /* Number of timer ticks since OS booted. */
 static int64_t ticks;
@@ -180,8 +177,6 @@ timer_interrupt (struct intr_frame *args UNUSED)
     if (ticks % 4 == 0) 
 			thread_mlfqs_update_all_priorities ();
   } 
-  if (ticks % FLUSH_FREQ == 0)
-    cache_flush();
   thread_wake_all_ready (ticks);
   thread_tick ();
 }

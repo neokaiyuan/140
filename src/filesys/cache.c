@@ -1,6 +1,8 @@
-#include "filesys/cache.h"
-#include <list.h>
 #include <hash.h>
+#include <list.h>
+#include <stdio.h>
+#include "devices/block.h"
+#include "filesys/cache.h"
 
 static struct list cache_list;
 static struct hash cache_hash;
