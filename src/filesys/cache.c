@@ -70,15 +70,14 @@ cache_add (block_sector_t sector_num)
 
     if (ce->dirty)
       block_write (fs_device, ce->sector_num, ce->data);
-    free (ce);
+
   } else {
     lock_release (&cache_lock);
+    ce = malloc (sizeof(struct cache_entry));
+    if (ce == NULL)
+      return NULL;
+    lock_init (&ce->lock);  // MAY NEED THIS
   }
-
-  ce = malloc (sizeof(struct cache_entry));
-  if (ce == NULL)
-    return NULL;
-  lock_init (&ce->lock);  // MAY NEED THIS
 
   block_read (fs_device, sector_num, ce->data);
   ce->sector_num = sector_num;
