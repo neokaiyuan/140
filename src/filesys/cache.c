@@ -2,14 +2,16 @@
 #include <list.h>
 #include <stdio.h>
 #include "devices/block.h"
+#include "threads/malloc.h"
 #include "filesys/cache.h"
+#include "filesys/filesys.h"
 
 static struct list cache_list;
 static struct hash cache_hash;
 static struct lock cache_lock;
 
 static block_sector_t
-cache_hash_hash_func (struct hash_elem *e, void *aux UNUSED)
+cache_hash_hash_func (const struct hash_elem *e, void *aux UNUSED)
 {
   struct cache_entry *entry = hash_entry (e, struct cache_entry, h_elem);
   return entry->sector_num;
@@ -39,12 +41,12 @@ cache_find (block_sector_t sector_num)
 
   struct cache_entry dummy;
   dummy.sector_num = sector_num;
-  struct hash_elem h_elem = hash_find (&cache_hash, &dummy->elem);
-  if (h_elem == NULL) {
+  struct hash_elem *hash_elem = hash_find (&cache_hash, &dummy.h_elem);
+  if (hash_elem == NULL) {
     lock_release (&cache_lock);
     return NULL;
   }
-  struct cache_entry *ce = hash_entry (h_elem, struct cache_entry, h_elem);
+  struct cache_entry *ce = hash_entry (hash_elem, struct cache_entry, h_elem);
   list_remove (&ce->l_elem);
   list_push_front (&cache_list, &ce->l_elem);
 
@@ -62,21 +64,21 @@ cache_add (block_sector_t sector_num)
     ASSERT (!list_empty (&cache_list));
 
     struct list_elem *elem = list_pop_back (&cache_list);
+    ce = list_entry (elem, struct cache_entry, l_elem);
     hash_delete (&cache_hash, &ce->h_elem);
     lock_release (&cache_lock); // NO NEED FINE LOCK HERE B/C OUT OF HASH/LIST
 
-    ce = list_entry (elem, struct cache_entry, l_elem);
-
     if (ce->dirty)
       block_write (fs_device, ce->sector_num, ce->data);
-
+    free (ce);
   } else {
     lock_release (&cache_lock);
-    ce = malloc (sizeof(cache_entry));
-    if (ce == NULL)
-      return NULL;
-    lock_init (&ce->lock);  // MAY NEED THIS
   }
+
+  ce = malloc (sizeof(struct cache_entry));
+  if (ce == NULL)
+    return NULL;
+  lock_init (&ce->lock);  // MAY NEED THIS
 
   block_read (fs_device, sector_num, ce->data);
   ce->sector_num = sector_num;
