@@ -20,8 +20,7 @@ struct cache_entry {
 void cache_init (void);
 struct cache_entry *cache_find (block_sector_t sector_num);
 struct cache_entry *cache_add (block_sector_t sector_num);
-void cache_read (struct cache_entry *ce, void *dest);
-void cache_write (struct cache_entry *ce, void *dest);
+struct cache_entry *cache_add_zereod (block_sector_t sector_num);
 void cache_flush (void);
 void cache_destroy (void);
 

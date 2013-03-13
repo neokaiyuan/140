@@ -64,8 +64,8 @@ cache_find (block_sector_t sector_num)
   return ce;
 }
 
-struct cache_entry * 
-cache_add (block_sector_t sector_num)
+static struct cache_entry * 
+add_to_cache (block_sector_t sector_num, bool zereod)
 {
   lock_acquire (&cache_lock);
   struct cache_entry *ce;
@@ -88,8 +88,12 @@ cache_add (block_sector_t sector_num)
       return NULL;
     lock_init (&ce->lock);  // MAY NEED THIS
   }
+  
+  if (zereod)
+    memset (ce->data, 0, BLOCK_SECTOR_SIZE);
+  else
+    block_read (fs_device, sector_num, ce->data);
 
-  block_read (fs_device, sector_num, ce->data);
   ce->sector_num = sector_num;
   ce->dirty = false;
   
@@ -100,6 +104,18 @@ cache_add (block_sector_t sector_num)
   
   lock_release (&cache_lock);
   return ce;
+}
+
+struct cache_entry *
+cache_add (block_sector_t sector_num)
+{ 
+  return add_to_cache (sector_num, false);
+}
+
+struct cache_entry *
+cache_add_zereod (block_sector_t sector_num)
+{ 
+  return add_to_cache (sector_num, true);
 }
 
 void
