@@ -15,6 +15,8 @@
 #define DBLY_INDIRECT_BLOCKS 1
 
 
+static void free_inode_blocks (struct inode_disk *disk_inode);
+
 //12 direct, 1 indirect, and 1 doubly indirect
 /* On-disk inode.
    Must be exactly BLOCK_SECTOR_SIZE bytes long. */
@@ -183,6 +185,8 @@ inode_create (block_sector_t sector, off_t length)
       success = init_inode_blocks (disk_inode, sectors);
       if (success)
         block_write (fs_device, sector, disk_inode);
+      else
+        free_inode_blocks (disk_inode);
       free (disk_inode);
     }
   return success;
@@ -240,6 +244,78 @@ inode_get_inumber (const struct inode *inode)
   return inode->sector;
 }
 
+static void
+free_indirect_block (block_sector_t sec_num, int num_sectors) 
+{
+  int indirect_block_size = BLOCK_SECTOR_SIZE/sizeof (block_sector_t);
+  static block_sector_t indirect_block_cpy[indirect_block_size];
+  block_read (fs_device, sec_num, indirect_block_cpy); //Think about nubmer being null
+  for (int i = 0; i < indirect_block_size; i++) {
+    if (indirect_block_cpy[i] == 0)
+      break;
+    free_map_release (indirect_block_cpy[i], 1);(
+    num_sectors--; 
+    if (num_sectors <= 0)
+      break;
+  }
+}
+
+static void 
+free_dual_indirect (block_sector_t sec_num, int num_sectors)  
+{
+  int indirect_block_size = BLOCK_SECTOR_SIZE/sizeof (block_sector_t);
+  static block_sector_t dual_indirect_cpy[indirect_block_size];
+
+  int num_indirect_blocks = sectors_left / indirect_block_size;
+  if ( (sectors_left % indirect_block_size ) != 0) 
+    num_indirect_blocks++; 
+
+  ASSERT (num_indirect_blocks <= indirect_block_size);
+  block_read (fs_device, sec_num, dual_indirect_cpy);
+
+  for (int i = 0; i < num_indirect_block; i++) {
+    if (dual_indirect_cpy[i] == 0)
+      break;
+    map_release (dual_indirect_cpy[i], 1);
+  }
+
+  map_release (sec_num, 1);
+
+}
+
+static void
+free_inode_blocks (struct inode_disk *disk_inode)
+{
+  int num_sectors = bytes_to_sectors (inode->data.length);
+  int indirect_block_size = BLOCK_SECTOR_SIZE/sizeof (block_sector_t);
+
+  if (num_sectors > 0 ) { 
+    for (int i = 0; i < DIRECT_BLOCKS; i++) {
+      if (inode->direct_blocks[i] == 0) { //In case this is an inode that failed to open 
+        num_sectors = 0;
+        break;
+      }
+      free_map_release (inode->direct_blocks[i], 1);  
+      num_sectors--;
+      if (num_sectors == 0)
+        break;
+    }
+  }
+
+  if (num_sectors > 0) {
+    if (inode->indirect_block == 0)
+      break;
+    free_indirect_block (inode->indirect_block, num_sectors);
+    num_sectors -= indirect_block_size;
+  }
+
+  if (num_sectors > 0) {
+    if (inode->dual_indirect_block == 0)
+      break;
+    free_dual_indirect (inode->dual_indirect_block, num_sectors);
+  }
+  
+}
 /* Closes INODE and writes it to disk.
    If this was the last reference to INODE, frees its memory.
    If INODE was also a removed inode, frees its blocks. */
@@ -261,9 +337,8 @@ inode_close (struct inode *inode)
       /* Deallocate blocks if removed. */
       if (inode->removed) 
         {
+          free_inode_blocks (&inode->data);
           free_map_release (inode->sector, 1);
-          free_map_release (inode->data.start,
-                            bytes_to_sectors (inode->data.length)); 
         }
 
       free (inode); 
