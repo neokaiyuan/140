@@ -60,45 +60,40 @@ cache_init ()
 static struct cache_entry *
 cache_find (block_sector_t sector_num)
 {
-  struct cache_entry dummy;
-  dummy.sector_num = sector_num;
-  struct hash_elem *hash_elem = hash_find (&cache_hash, &dummy.h_elem);
+  while (true) {
+    struct cache_entry dummy;
+    dummy.sector_num = sector_num;
+    struct hash_elem *hash_elem = hash_find (&cache_hash, &dummy.h_elem);
 
-  if (hash_elem == NULL) {
-    lock_acquire (&io_lock);
-
-    struct io_entry ioe == NULL;
+    if (hash_elem != NULL) {
+      struct cache_entry *ce = hash_entry (hash_elem, struct cache_entry, h_elem);
+      if (!lock_try_acquire(&ce->lock)) {
+        ce->pinned_cnt++;
+        lock_release (&cache_lock)
+        lock_acquire (&ce->lock);
+        lock_acquire (&cache_lock);
+        ce->pinned_cnt--;
+      } //After, always have cache lock & ce lock and orig. pin status
+      ce->pinned_cnt++;
+      list_remove (&ce->l_elem);
+      list_push_front (&cache_list, &ce->l_elem);
+      return ce;
+    }
+    //lock_acquire (&io_lock);
+    struct io_entry *ioe == NULL;
     struct list_elem *e;
     for (e = list_begin (&io_list); e != list_end (&io_list);
          e = list_next (e)) {
-      ioe = list_entry (e, struct io_entry, elem);
-      if (ioe->sector_num == sector_num)
-        break;
+     ioe = list_entry (e, struct io_entry, elem);
+     if (ioe->sector_num == sector_num)
+       break;
     }
-    
-    if (ioe == NULl || ioe->sector_num != sector_num)
-      return NULL;
-
-    while (/*condition */)
-      cond_wait (io_complete, &io_lock);  // wait for IO to finish
-
-    if (ioe->evicting)
-      
-    // do a for loop through io_list, if in list, acquire lock
-    // if evicting, release lock, return null
-    // otherwise, return ce
-    lock_release (&io_lock);
-    return /*SOMETHING */
-  } 
-
-  struct cache_entry *ce = hash_entry (hash_elem, struct cache_entry, h_elem);
-  if (ce != NULL){
-    ce->pinned_cnt++;
-    list_remove (&ce->l_elem);
-    list_push_front (&cache_list, &ce->l_elem);
-  }
-
-  return ce;
+    if (ioe == NULl || ioe->sector_num != sector_num) //Release I/O lock
+     //lock_release (&io_lock);
+     return NULL;
+     cond_wait (ce->io_complete, &cache_lock);  // wait for IO to finish, problem here no cahce lock..
+    } 
+  return NULL; //Should not reach
 }
 
 static struct io_entry *
@@ -122,51 +117,65 @@ remove_io_entries (block_sector_t sector_num, struct cache_entry *ce) {
 
 }
 
+static struct cache_entry *
+find_evict_entry (void) 
+{
+  struct list_elem *e;
+  while (true) {
+    for (e = list_end (&cache_list); e != list_begin (&cache_list); 
+         e = list_prev (e)) {   // iterate backwards throguh list
+      ce = list_entry (elem, struct cache_entry, l_elem);
+      if (ce->pinned_cnt == 0)
+        break;
+    }   
+    if (ce->pinned_cnt == 0) {
+      break;
+    }
+  }
+  return ce;
+
+}
+
 static struct cache_entry * 
 add_to_cache (block_sector_t sector_num, bool zeroed)
 {
   lock_acquire (&cache_lock);
   struct cache_entry *ce;
+  block_sector_t old_sector_num;
   
   ce = cache_find (sector_num); // should only return once I/O completed
-  if (ce != NULL)
+
+  if (ce != NULL) { //need to zero out
+    if (zeroed)
+      memset (ce->data, 0, BLOCK_SECTOR_SIZE);
+      lock_release (&cache_lock);
     return ce;
+  }
 
   if (cache_size >= MAX_CACHE_SIZE) {
     ASSERT (!list_empty (&cache_list));
 
-    struct list_elem *e;
-    while (true) {
-      for (e = list_end (&cache_list); e != list_begin (&cache_list); 
-           e = list_prev (e)) {   // iterate backwards throguh list
-        ce = list_entry (elem, struct cache_entry, l_elem);
-        if (ce->pinned_cnt == 0)
-          break;
-      }   
-      if (ce->pinned_cnt == 0) {
-        list_remove (&ce->l_elem);
-        break;
-      }
-    }
-
-    hash_delete (&cache_hash, &ce->h_elem); // nothing else finds it in cache
-    
-    io_entry *add_ioe = add_io_entry (sector_num, false, ce);
-    if (add_ioe == NULL)
+    ce = find_evict_entry ();
+    list_remove (&ce->l_elem);
+    list_push_front (&cache_list, &ce->l_elem);
+    hash_delete (&cache_hash, &ce->h_elem); 
+    old_sector_num = ce->sector_num;
+    ce->sector_num = sector_num;
+    ce->dirty = false;
+    ce->pinned_cnt = 1;
+    hash_insert (&cache_hash, &ce->h_elem); //Add in with new value
+ 
+    struct io_entry *evict_ioe = add_io_entry (ce->sector_num, true, ce);
+    if (evict_ioe == NULL)
       return NULL;
-    lock_acquire (add_ioe->lock);
 
-    io_entry *evict_ioe = add_io_entry (ce->sector_num, true, ce);
-    if (evict_ioe == NULL) {
-      free (add_ioe);
-      return NULL;
-    }
+    lock_acquire (ce->lock);
     lock_acquire (evict_ioe->lock);
 
-    lock_release (&cache_lock); // NO NEED FINE LOCK HERE B/C OUT OF HASH/LIST
+    lock_release (&cache_lock); // Release glob lock, same sector calls block
 
     if (ce->dirty) {
-      block_write (fs_device, ce->sector_num, ce->data);
+      block_write (fs_device, old_sector_num, ce->data);
       lock_acquire (&io_lock);
       cond_broadcast (&evict_ioe->io_complete, &io_lock);
       lock_release (&io_lock);
@@ -178,12 +187,18 @@ add_to_cache (block_sector_t sector_num, bool zeroed)
     ce = malloc (sizeof(struct cache_entry));
     if (ce == NULL)
       return NULL;
-    //lock_init (&ce->lock);  // MAY NEED THIS
+    ce->dirty = false;
+    ce->pinned_cnt = 1;
+    ce->sector_num = sector_num;
+    lock_init (&ce->lock);  // MAY NEED THIS
+    lock_acquire (&ce->lock);
 
     io_entry *add_ioe = add_io_entry (sector_num, false, ce);
     if (add_ioe == NULL)
       return NULL;
 
+    hash_insert (&cache_hash, &ce->h_elem); //Add in with new value
+    list_push_front (&cache_list, &ce->l_elem);
     lock_release (&cache_lock);
   }
   
@@ -192,17 +207,8 @@ add_to_cache (block_sector_t sector_num, bool zeroed)
   else
     block_read (fs_device, sector_num, ce->data);
 
-  ce->sector_num = sector_num;
-  ce->dirty = false;
-  ce->pinned_cnt = 1;;
-  
-  lock_acquire (&cache_lock);
+  lock_release (&ce->lock)
 
-  list_remove (&ce->l_elem);
-  hash_insert (&cache_hash, &ce->h_elem);
-  list_push_front (&cache_list, &ce->l_elem);
-
-  lock_release (&cache_lock);
   return ce;
 }
 
