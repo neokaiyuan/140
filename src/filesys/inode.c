@@ -75,30 +75,33 @@ inode_init (void)
 }
 
 /* Initialize an indirect block */
-static void
+static bool
 init_indirect_block (int sector_num, int sectors_left)
 {
   static char zeros[BLOCK_SECTOR_SIZE];
   int indirect_block_size = BLOCK_SECTOR_SIZE/sizeof (block_sector_t);
   static block_sector_t indirect_block_cpy[indirect_block_size];
   for (int i = 0; i < indirect_block_size; i++ ) {
-    free_map_allocate (1, &indirect_block_cpy[i]);
+    if (!free_map_allocate (1, &indirect_block_cpy[i]));
+      return false;
     block_write (fs_device, indirect_block_cpy[i], zeros);
     sectors_left--;
     if (sectors_left <= 0)
       break;
     }
     block_write (fs_device,  sector_num, indirect_block_cpy);
+    return true;
 }
 
 /* Initialize a doubly indirect block, called dual indirect */
-static void 
+static bool 
 init_dual_indirect (struct inode_disk *disk_inode, int sectors_left)
 {
   int indirect_block_size = BLOCK_SECTOR_SIZE/sizeof (block_sector_t);
   static block_sector_t dual_indirect_cpy[indirect_block_size];
 
-  free_map_allocate (1, &disk_inode->dual_indirect_block);
+  if (!free_map_allocate (1, &disk_inode->dual_indirect_block))
+    return false;
 
   int num_indirect_blocks = sectors_left / indirect_block_size;
   if ( (sectors_left % indirect_block_size ) != 0) 
@@ -107,10 +110,12 @@ init_dual_indirect (struct inode_disk *disk_inode, int sectors_left)
   ASSERT (num_indirect_blocks <= indirect_block_size);
 
   for (int i = 0; i < num_indirect_blocks; i++) {
-    free_map_allocate (1, &dual_indirect_cpy[i]);
+    if(!free_map_allocate (1, &dual_indirect_cpy[i]))
+      return false;
     init_indirect_block (dual_indirect_cpy[i]);
   }
   block_write (fs_device, &disk_inode->dual_direct_block, dual_indirect_cpy);
+  return true;
 }
 
 /* Finds sector for inode and zero them out */
@@ -122,12 +127,11 @@ init_inode_blocks (struct inode_disk *disk_inode, size_t sectors) {
   static char zeros[BLOCK_SECTOR_SIZE];
 
   if (free_map_allocate (1, &disk_inode->direct_blocks[0])) {//FIX, gives first block
-    sectors_left--;
     success = true;
-    block_write (fs_device, disk_inode->direct_blocks[0], zeros);
     if (sectors_left > 0) {
-      for (int i = 1; i < DIRECT_BLOCKS; i++) {
-        free_map_allocate (1, &disk_inode->direct_blocks[i]);
+      for (int i = 0; i < DIRECT_BLOCKS; i++) {
+        if (!free_map_allocate (1, &disk_inode->direct_blocks[i]));
+          return false;
         block_write (fs_device, disk_inode->direct_blocks[i], zeros);
         sectors_left--;
         if (sectors_left <= 0)
@@ -135,12 +139,15 @@ init_inode_blocks (struct inode_disk *disk_inode, size_t sectors) {
       }
     }
     if (sectors_left > 0) {
-      free_map_allocate (1, &disk_inode->indirect_block);
-      init_indirect_block (disk_inode->indirect_block, sectors_left);
+      if (!free_map_allocate (1, &disk_inode->indirect_block))
+        return false;
+      if (!init_indirect_block (disk_inode->indirect_block, sectors_left));
+        return false;
       sectors_left -= indirect_block_size;;
     }
     if (sectors_left > 0) {
-      init_dual_indirect (disk_inode, sectors_left);
+      if (!init_dual_indirect (disk_inode, sectors_left));
+        return false;
     }
   }
   return success;
