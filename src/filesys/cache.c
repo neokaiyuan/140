@@ -10,17 +10,17 @@
 static struct list cache_list;
 static struct hash cache_hash;
 static struct lock cache_lock;
-static struct list io_list; 
-static struct lock io_lock;
+//static struct list evict_list; // incoming I/Os taken care of by ce->lock
+//static struct lock io_lock;
 static int cache_size;
-
-struct io_entry {
+/*
+struct evict_entry {
   block_sector_t sector_num;
   list_elem elem;
   struct cond io_complete;
   int waiting;
 };
-
+*/
 static block_sector_t
 cache_hash_hash_func (const struct hash_elem *e, void *aux UNUSED)
 {
@@ -50,81 +50,84 @@ cache_init ()
   list_init (&cache_list);
   hash_init (&cache_hash, &cache_hash_hash_func, &cache_hash_less_func, NULL);
   lock_init (&cache_lock);
-  list_init (&io_list);
-  lock_init (&io_lock);
+  list_init (&evict_list);
+  //lock_init (&io_lock);
   cache_size = 0;
   thread_create ("flush_thread", PRI_DEFAULT, &flush_func, NULL);
 }
+
 /* When return from this function, will always have cache lock.
    if ce was found, then will also return the ce * and the ce lock
-   acquired. Otherwise, it returns NULL ot indicate that the block
+   acquired. Otherwise, it returns NULL to indicate that the block
    sector number is not in the cache and is not being evicted from
    the cache*/
 static struct cache_entry *
 cache_find (block_sector_t sector_num)
 {
-  while (true) {
+  //while (true) {
     struct cache_entry dummy;
     dummy.sector_num = sector_num;
     struct hash_elem *hash_elem = hash_find (&cache_hash, &dummy.h_elem);
 
     if (hash_elem != NULL) {
       struct cache_entry *ce = hash_entry (hash_elem, struct cache_entry, h_elem);
-      if (!lock_try_acquire(&ce->lock)) { //To check if being brought in
+      if (!lock_try_acquire (&ce->lock)) { // To check if being brought in
         ce->pinned_cnt++;
-        lock_release (&cache_lock)
-        lock_acquire (&ce->lock); //No race here because pinned = cannot evict
+        lock_release (&cache_lock); // No race here because pinned = cannot evict
+        lock_acquire (&ce->lock);   // wait on incoming I/O
         lock_acquire (&cache_lock);
         ce->pinned_cnt--;
-      } //After, always have cache lock & ce lock and orig. pin status
-      ce->pinned_cnt++;
+      } // After, always have cache lock & ce lock and orig. pin status
+      ce->pinned_cnt++; // so that there is no eviction between cache_get and memcpy above
       list_remove (&ce->l_elem);
       list_push_front (&cache_list, &ce->l_elem);
       return ce;
     }
-    struct io_entry *ioe == NULL;
+/*
+    struct evict_entry *ee == NULL;
     struct list_elem *e;
-    for (e = list_begin (&io_list); e != list_end (&io_list);
+    for (e = list_begin (&evict_list); e != list_end (&evict_list);
          e = list_next (e)) {
-     ioe = list_entry (e, struct io_entry, elem);
-     if (ioe->sector_num == sector_num)
+     ee = list_entry (e, struct evict_entry, elem);
+     if (ee->sector_num == sector_num)
        break;
     }
-    if (ioe == NULl || ioe->sector_num != sector_num) //Not in cache or exiting 
+    if (ee == NULL || ee->sector_num != sector_num) // Not in cache or exiting 
       return NULL; 
 
-    ioe->waiters++;
-    cond_wait (ioe->io_complete, &cache_lock);  // wait for IO to finish, problem here no cahce lock..
-    ioe->waiters--;
-    if (ioe_waiters == 0) {
-      list_remove (ioe->elem);
-      free (ioe);
+    ee->waiters++;
+    cond_wait (ee->io_complete, &cache_lock);  // wait for outgoing IO to finish
+    ee->waiters--;
+    if (ee_waiters == 0) {
+      list_remove (ee->elem);
+      free (ee);
     }
-  } 
-  return NULL; //Should not reach
+*/
+  //} 
+  return NULL; // Should not reach
 }
-
-static struct io_entry *
-add_io_entry (block_sector_t sector_nume)
+/*
+static struct evict_entry *
+add_evict_entry (block_sector_t sector_nume)
 {
-  struct io_entry *ioe = malloc (sizeof(io_entry));
-  if (ioe == NULL)
+  struct evict_entry *ee = malloc (sizeof(evict_entry));
+  if (ee == NULL)
     return NULL;
-  ioe->sector_num = sector_num;
-  ioe->waiting = 0;
-  cond_init (&ioe->io_complete);
-  list_push_back (&io_list, &ioe->elem);
+  ee->sector_num = sector_num;
+  ee->waiting = 0;
+  cond_init (&ee->io_complete);
+  list_push_back (&evict_list, &ioe->elem);
   return ioe;
 }
-
-/* Not thread safe, assumes a lock is already head, cache lock*/
+*/
+/* Not thread safe, assumes a lock is already head: cache lock*/
 static struct cache_entry *
 find_evict_entry (void) 
 {
   struct list_elem *e;
   while (true) {
     for (e = list_end (&cache_list); e != list_begin (&cache_list); 
-         e = list_prev (e)) {   // iterate backwards throguh list
+         e = list_prev (e)) {   // iterate backwards through list
       ce = list_entry (elem, struct cache_entry, l_elem);
       if (ce->pinned_cnt == 0)
         break;
@@ -146,7 +149,7 @@ add_to_cache (block_sector_t sector_num, bool zeroed)
   ce = cache_find (sector_num); // should only return once I/O completed
 
   if (ce != NULL) { //need to zero out
-    lock_release (&cache_lock);
+    lock_release (&cache_lock); // needs to be here in case ce == NULL
     if (zeroed)
       memset (ce->data, 0, BLOCK_SECTOR_SIZE);
     lock_release (&ce->lock); //ce is pinned and moved to list front in cache_find
@@ -156,28 +159,28 @@ add_to_cache (block_sector_t sector_num, bool zeroed)
   if (cache_size >= MAX_CACHE_SIZE) {
     ASSERT (!list_empty (&cache_list));
 
-    ce = find_evict_entry ();
+    //ce = find_evict_entry (); // cache entry to evict
     list_remove (&ce->l_elem);
     list_push_front (&cache_list, &ce->l_elem);
-    hash_delete (&cache_hash, &ce->h_elem); 
-    old_sector_num = ce->sector_num;
+    //hash_delete (&cache_hash, &ce->h_elem); 
+    //old_sector_num = ce->sector_num;
     ce->sector_num = sector_num;
     ce->dirty = false;
     ce->pinned_cnt = 1;
-    hash_insert (&cache_hash, &ce->h_elem); //Add in with new value
+    //hash_insert (&cache_hash, &ce->h_elem); // Add in with new sector_num
  
-    struct io_entry *evict_ioe = add_io_entry (old_sector_num);
-    if (evict_ioe == NULL)
-      return NULL; //What does recovery mean here?
+    struct evict_entry *ee = add_evict_entry (old_sector_num);
+    if (ee == NULL)
+      return NULL; // What does recovery mean here?
 
-    lock_acquire (ce->lock); //no One can access until I/O complete
+    lock_acquire (ce->lock); // no one can access until in- and outbound I/O complete
 
     lock_release (&cache_lock); 
 
     if (ce->dirty) {
-      block_write (fs_device, old_sector_num, ce->data);
+      block_write (fs_device, old_sector_num, ce->data);  // holds old data initially
       lock_acquire (&cache_lock);
-      cond_broadcast (&evict_ioe->io_complete, &cache_lock); //Wake blocked thrds
+      cond_broadcast (&ee->io_complete, &cache_lock); //Wake blocked thrds
       lock_release (&cache_lock);
     }
 
@@ -191,7 +194,7 @@ add_to_cache (block_sector_t sector_num, bool zeroed)
     ce->pinned_cnt = 1;
     ce->sector_num = sector_num;
     lock_init (&ce->lock);  
-    lock_acquire (&ce->lock); //No one can access until I/O complete
+    lock_acquire (&ce->lock); // No one can access until inbound I/O complete
 
     hash_insert (&cache_hash, &ce->h_elem); //Add in with new value
     list_push_front (&cache_list, &ce->l_elem);
@@ -204,7 +207,6 @@ add_to_cache (block_sector_t sector_num, bool zeroed)
     block_read (fs_device, sector_num, ce->data);
 
   lock_release (&ce->lock)
-
   return ce;
 }
 
