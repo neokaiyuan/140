@@ -18,8 +18,6 @@ struct io_entry {
   block_sector_t sector_num;
   list_elem elem;
   struct cond io_complete;
-  bool evicting;          // evicting or reading in?
-  struct cache_entry *ce;
   int waiting;
 };
 
@@ -104,27 +102,19 @@ cache_find (block_sector_t sector_num)
 }
 
 static struct io_entry *
-add_io_entry (block_sector_t sector_num, bool evicting, 
-              struct cache_entry *ce)
+add_io_entry (block_sector_t sector_nume)
 {
   struct io_entry *ioe = malloc (sizeof(io_entry));
   if (ioe == NULL)
     return NULL;
   ioe->sector_num = sector_num;
-  ioe->evicting = evicting;
-  ioe->ce = ce;
   ioe->waiting = 0;
   cond_init (&ioe->io_complete);
   list_push_back (&io_list, &ioe->elem);
   return ioe;
 }
 
-static bool
-remove_io_entries (block_sector_t sector_num, struct cache_entry *ce) {
-    
-
-}
-
+/* Not thread safe, assumes a lock is already head, cache lock*/
 static struct cache_entry *
 find_evict_entry (void) 
 {
@@ -141,7 +131,6 @@ find_evict_entry (void)
     }
   }
   return ce;
-
 }
 
 static struct cache_entry * 
@@ -173,12 +162,11 @@ add_to_cache (block_sector_t sector_num, bool zeroed)
     ce->pinned_cnt = 1;
     hash_insert (&cache_hash, &ce->h_elem); //Add in with new value
  
-    struct io_entry *evict_ioe = add_io_entry (ce->sector_num, true, ce);
+    struct io_entry *evict_ioe = add_io_entry (old_sector_num);
     if (evict_ioe == NULL)
-      return NULL;
+      return NULL; //What does recovery mean here
 
-    lock_acquire (ce->lock);
-    lock_acquire (evict_ioe->lock);
+    lock_acquire (ce->lock); //No One can access until I/O complete
 
     lock_release (&cache_lock); // Release glob lock, same sector calls block
 
@@ -198,8 +186,8 @@ add_to_cache (block_sector_t sector_num, bool zeroed)
     ce->dirty = false;
     ce->pinned_cnt = 1;
     ce->sector_num = sector_num;
-    lock_init (&ce->lock);  // MAY NEED THIS
-    lock_acquire (&ce->lock);
+    lock_init (&ce->lock);  
+    lock_acquire (&ce->lock); //No one can access until I/O complete
 
     hash_insert (&cache_hash, &ce->h_elem); //Add in with new value
     list_push_front (&cache_list, &ce->l_elem);
