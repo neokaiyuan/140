@@ -19,6 +19,7 @@ struct dir_entry
     block_sector_t inode_sector;        /* Sector number of header. */
     char name[NAME_MAX + 1];            /* Null terminated file name. */
     bool in_use;                        /* In use or free? */
+    bool is_dir;                        /* directory or file? */
   };
 
 /* Creates a directory with space for ENTRY_CNT entries in the
@@ -115,6 +116,23 @@ lookup (const struct dir *dir, const char *name,
    and returns true if one exists, false otherwise.
    On success, sets *INODE to an inode for the file, otherwise to
    a null pointer.  The caller must close *INODE. */
+bool
+dir_lookup (const struct dir *dir, const char *name,
+            struct inode **inode) 
+{
+  struct dir_entry e;
+
+  ASSERT (dir != NULL);
+  ASSERT (name != NULL);
+
+  if (lookup (dir, name, &e, NULL))
+    *inode = inode_open (e.inode_sector);
+  else
+    *inode = NULL;
+
+  return *inode != NULL;
+}
+
 bool
 dir_lookup (const struct dir *dir, const char *name,
             struct inode **inode) 

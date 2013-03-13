@@ -30,6 +30,11 @@ static int write (int fd, const void *buffer, unsigned length);
 static void seek (int fd, unsigned position);
 static unsigned tell (int fd);
 static void close (int fd);
+static bool chdir (const char *dir);
+static bool mkdir (const char *dir);
+static bool readdir (int fd, char *name);
+static bool isdir (int fd);
+static int inumber (int fd);
 
 #define MAX_WRITE_SIZE 500
 
@@ -93,6 +98,22 @@ syscall_handler (struct intr_frame *f)
       break;
     case SYS_CLOSE:
       close (*(int *) get_arg_n(1, esp));
+      break;
+    case SYS_CHDIR:
+      f->eax = (int) chdir (*(char **) get_arg_n (1, esp));
+      break;
+    case SYS_MKDIR:
+      f->eax = (int) mkdir (*(char **) get_arg_n (1, esp));
+      break;
+    case SYS_READDIR:
+      f->eax = (int) readdir (*(int *) get_arg_n (1, esp), 
+                              *(char **) get_arg_n (2, esp));
+      break;
+    case SYS_ISDIR:
+      f->eax = (int) isdir (*(int *) get_arg_n (1, esp));
+      break;
+    case SYS_INUMBER:
+      f->eax = inumber (*(int *) get_arg_n (1, esp));
       break;
     default:
       ASSERT (false);

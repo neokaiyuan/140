@@ -4,7 +4,6 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
-
 #include "synch.h"
 
 /* States in a thread's life cycle. */
@@ -30,6 +29,8 @@ typedef int tid_t;
 #define NOBODY -1
 
 #define MAX_FD_INDEX 129                /* maximum possible fd value */
+
+struct dir;
 
 /* A kernel thread or user process.
 
@@ -135,6 +136,9 @@ struct thread
     int next_open_file_index;
 
     struct lock wait_lock;               /* used to prevent race conditions in syscall wait */
+
+    /* the following for project 4 */
+    struct dir *curr_dir; /* current directory for this process */
   };
 
 struct exit_info

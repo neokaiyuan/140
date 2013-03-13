@@ -43,6 +43,39 @@ filesys_done (void)
   cache_destroy ();
 }
 
+static dir *
+get_lowest_dir (const char *name)
+{
+  struct thread *t = thread_current ();
+  const char *save_ptr = name;
+  struct dir *upper_dir;
+  if (strchr (name, '/') == name) { // if absolute pathname
+    save_ptr++;
+    upper_dir = dir_open_root ();
+  } else {                          // relative pathname
+    upper_dir = dir_reopen (t->curr_dir);
+  }  
+
+  int path_len = strlen (save_ptr);
+  char path[path_len + 1];
+  strlcpy (path, save_ptr, path_len + 1);
+  
+  struct dir *lower_dir;
+  struct inode *lower_dir_inode;
+  char *token;
+  for (token = strtok_r (path, "/", &save_ptr); token != NULL;
+       token = strtok_r (NULL, "/", &save_ptr)) {
+    bool dir_exists = dir_lookup (upper_dir, token, &lower_dir_inode);
+    if (!dir_exists)
+      return NULL;
+    struct dir *lower_dir = dir_open (lower_dir_inode);
+    upper_dir = lower_dir;
+  }
+    
+
+  return 
+}
+
 /* Creates a file named NAME with the given INITIAL_SIZE.
    Returns true if successful, false otherwise.
    Fails if a file named NAME already exists,

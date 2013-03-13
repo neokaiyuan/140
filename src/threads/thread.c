@@ -21,6 +21,8 @@
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
 
+struct dir;
+
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
@@ -569,6 +571,15 @@ init_thread (struct thread *t, const char *name, int priority)
   t->pid_waiting_on = NOBODY;
   t->my_exec = NULL;
   lock_init(&t->wait_lock);
+
+  /* the following for project 4 */
+  if (t == initial_thread) {
+    t->curr_dir = dir_open_root ();
+  } else {
+    t->curr_dir = dir_reopen (thread_current ()->curr_dir);
+    if (t->curr_dir == NULL)
+      PANIC ("can't get memory for string to store current directory");
+  }
 
   t->magic = THREAD_MAGIC;
 

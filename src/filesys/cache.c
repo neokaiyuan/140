@@ -10,17 +10,17 @@
 static struct list cache_list;
 static struct hash cache_hash;
 static struct lock cache_lock;
-static struct list io_list;
-
+static struct list io_list; 
+static struct lock io_lock;
 static int cache_size;
 
 struct io_entry {
   block_sector_t sector_num;
   list_elem elem;
-  struct lock lock;
-  //struct cache_entry *ce;
-  bool evicting;
-}
+  struct cond io_complete;
+  bool evicting;          // evicting or reading in?
+  struct cache_entry *ce;
+};
 
 static block_sector_t
 cache_hash_hash_func (const struct hash_elem *e, void *aux UNUSED)
@@ -52,34 +52,46 @@ cache_init ()
   hash_init (&cache_hash, &cache_hash_hash_func, &cache_hash_less_func, NULL);
   lock_init (&cache_lock);
   list_init (&io_list);
-
+  lock_init (&io_lock);
   cache_size = 0;
-
   thread_create ("flush_thread", PRI_DEFAULT, &flush_func, NULL);
-}
-
-/* Note, not multi-threaded safe */
-static struct cache_entry *
-find (block_sector_t sector_num) 
-{
-  struct cache_entry dummy;
-  dummy.sector_num = sector_num;
-  struct hash_elem *hash_elem = hash_find (&cache_hash, &dummy.h_elem);
-
-  if (hash_elem == NULL) 
-    return NULL;
-
-  struct cache_entry *ce = hash_entry (hash_elem, struct cache_entry, h_elem);
-
-  return ce;
 }
 
 static struct cache_entry *
 cache_find (block_sector_t sector_num)
 {
+  struct cache_entry dummy;
+  dummy.sector_num = sector_num;
+  struct hash_elem *hash_elem = hash_find (&cache_hash, &dummy.h_elem);
 
-  struct cache_entry *ce = find (sector_num);
+  if (hash_elem == NULL) {
+    lock_acquire (&io_lock);
 
+    struct io_entry ioe == NULL;
+    struct list_elem *e;
+    for (e = list_begin (&io_list); e != list_end (&io_list);
+         e = list_next (e)) {
+      ioe = list_entry (e, struct io_entry, elem);
+      if (ioe->sector_num == sector_num)
+        break;
+    }
+    
+    if (ioe == NULl || ioe->sector_num != sector_num)
+      return NULL;
+
+    while (/*condition */)
+      cond_wait (io_complete, &io_lock);  // wait for IO to finish
+
+    if (ioe->evicting)
+      
+    // do a for loop through io_list, if in list, acquire lock
+    // if evicting, release lock, return null
+    // otherwise, return ce
+    lock_release (&io_lock);
+    return /*SOMETHING */
+  } 
+
+  struct cache_entry *ce = hash_entry (hash_elem, struct cache_entry, h_elem);
   if (ce != NULL){
     ce->pinned_cnt++;
     list_remove (&ce->l_elem);
@@ -89,44 +101,20 @@ cache_find (block_sector_t sector_num)
   return ce;
 }
 
-void 
-cache_unpin (struct cache_entry *ce) 
-{
-  lock_acquire (&ce->lock);
-
-  if (ce != NULL) 
-    ce->pinned_cnt--;
-
-  lock_release (&ce->lock);
-}
-
 static struct io_entry *
-add_evict_io_entry (block_sector_t sector_num, bool evicting)
+add_io_entry (block_sector_t sector_num, bool evicting, 
+              struct cache_entry *ce)
 {
-  struct io_entry *e = malloc (sizeof(io_entry));
-  if (e == NULL)
+  struct io_entry *ioe = malloc (sizeof(io_entry));
+  if (ioe == NULL)
     return NULL;
-  //e->ce = sec_evicting->ce = ce;
-  e->sector_num = sector_num;
-  e->evicting = false;
-  list_push_back (&io_list, &e->elem);
-  return e;
+  ioe->sector_num = sector_num;
+  ioe->evicting = evicting;
+  ioe->ce = ce;
+  cond_init (&ioe->io_complete);
+  list_push_back (&io_list, &ioe->elem);
+  return ioe;
 }
-
-static bool
-add_evict_io_entries (block_sector_t sector_num, struct cache_entry *ce)
-{
-  struct io_entry *io_e = add_evict_to_entry (sector_num);
-  if (io_e == NULL)
-    return false;
-  if (add_evict_io_entry (ce->sector_num) == NULL) {
-    free (io_e);
-    return false;
-  }
-  return true;
-}
-
-
 
 static bool
 remove_io_entries (block_sector_t sector_num, struct cache_entry *ce) {
@@ -140,7 +128,7 @@ add_to_cache (block_sector_t sector_num, bool zeroed)
   lock_acquire (&cache_lock);
   struct cache_entry *ce;
   
-  ce = cache_find (sector_num);
+  ce = cache_find (sector_num); // should only return once I/O completed
   if (ce != NULL)
     return ce;
 
@@ -150,7 +138,7 @@ add_to_cache (block_sector_t sector_num, bool zeroed)
     struct list_elem *e;
     while (true) {
       for (e = list_end (&cache_list); e != list_begin (&cache_list); 
-           e = list_prev (e)) {
+           e = list_prev (e)) {   // iterate backwards throguh list
         ce = list_entry (elem, struct cache_entry, l_elem);
         if (ce->pinned_cnt == 0)
           break;
@@ -161,26 +149,42 @@ add_to_cache (block_sector_t sector_num, bool zeroed)
       }
     }
 
-    hash_delete (&cache_hash, &ce->h_elem);
+    hash_delete (&cache_hash, &ce->h_elem); // nothing else finds it in cache
+    
+    io_entry *add_ioe = add_io_entry (sector_num, false, ce);
+    if (add_ioe == NULL)
+      return NULL;
+    lock_acquire (add_ioe->lock);
 
-    lock_acquire (&ce->lock); 
+    io_entry *evict_ioe = add_io_entry (ce->sector_num, true, ce);
+    if (evict_ioe == NULL) {
+      free (add_ioe);
+      return NULL;
+    }
+    lock_acquire (evict_ioe->lock);
 
     lock_release (&cache_lock); // NO NEED FINE LOCK HERE B/C OUT OF HASH/LIST
 
-    if (ce->dirty)
+    if (ce->dirty) {
       block_write (fs_device, ce->sector_num, ce->data);
+      lock_acquire (&io_lock);
+      cond_broadcast (&evict_ioe->io_complete, &io_lock);
+      lock_release (&io_lock);
+    }
 
   } else {
     cache_size++;
-    lock_release (&cache_lock);
-
+    
     ce = malloc (sizeof(struct cache_entry));
     if (ce == NULL)
       return NULL;
-    lock_init (&ce->lock);  // MAY NEED THIS
+    //lock_init (&ce->lock);  // MAY NEED THIS
 
-    lock_acquire (&ce->lock); 
-    list_push_back (&io_list, &ce->l_elem);
+    io_entry *add_ioe = add_io_entry (sector_num, false, ce);
+    if (add_ioe == NULL)
+      return NULL;
+
+    lock_release (&cache_lock);
   }
   
   if (zeroed)
@@ -198,9 +202,7 @@ add_to_cache (block_sector_t sector_num, bool zeroed)
   hash_insert (&cache_hash, &ce->h_elem);
   list_push_front (&cache_list, &ce->l_elem);
 
-  lock_release (&ce->lock);  
   lock_release (&cache_lock);
-
   return ce;
 }
 
@@ -211,9 +213,20 @@ cache_get (block_sector_t sector_num)
 }
 
 struct cache_entry *
-cache_add_zeroed (block_sector_t sector_num)
+cache_get_zeroed (block_sector_t sector_num)
 { 
   return add_to_cache (sector_num, true);
+}
+
+void 
+cache_unpin (struct cache_entry *ce) 
+{
+  lock_acquire (&ce->lock);
+
+  if (ce != NULL) 
+    ce->pinned_cnt--;
+
+  lock_release (&ce->lock);
 }
 
 void
