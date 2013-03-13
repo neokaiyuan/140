@@ -184,9 +184,9 @@ add_to_cache (block_sector_t sector_num, bool zeroed)
 
     if (ce->dirty) {
       block_write (fs_device, old_sector_num, ce->data);
-      //lock_acquire (&io_lock);
-      cond_broadcast (&evict_ioe->io_complete, &cache_lock);
-      //lock_release (&io_lock);
+      lock_acquire (&cache_lock);
+      cond_broadcast (&evict_ioe->io_complete, &cache_lock); //Wake blocked thrds
+      lock_release (&cache_lock);
     }
 
   } else {
@@ -200,10 +200,6 @@ add_to_cache (block_sector_t sector_num, bool zeroed)
     ce->sector_num = sector_num;
     lock_init (&ce->lock);  // MAY NEED THIS
     lock_acquire (&ce->lock);
-
-  //  io_entry *add_ioe = add_io_entry (sector_num, false, ce);
-  //  if (add_ioe == NULL)
-  //    return NULL;
 
     hash_insert (&cache_hash, &ce->h_elem); //Add in with new value
     list_push_front (&cache_list, &ce->l_elem);
