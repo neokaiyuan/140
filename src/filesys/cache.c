@@ -55,7 +55,11 @@ cache_init ()
   cache_size = 0;
   thread_create ("flush_thread", PRI_DEFAULT, &flush_func, NULL);
 }
-
+/* When return from this function, will always have cache lock.
+   if ce was found, then will also return the ce * and the ce lock
+   acquired. Otherwise, it returns NULL ot indicate that the block
+   sector number is not in the cache and is not being evicted from
+   the cache*/
 static struct cache_entry *
 cache_find (block_sector_t sector_num)
 {
@@ -66,10 +70,10 @@ cache_find (block_sector_t sector_num)
 
     if (hash_elem != NULL) {
       struct cache_entry *ce = hash_entry (hash_elem, struct cache_entry, h_elem);
-      if (!lock_try_acquire(&ce->lock)) {
+      if (!lock_try_acquire(&ce->lock)) { //To check if being brought in
         ce->pinned_cnt++;
         lock_release (&cache_lock)
-        lock_acquire (&ce->lock);
+        lock_acquire (&ce->lock); //No race here because pinned = cannot evict
         lock_acquire (&cache_lock);
         ce->pinned_cnt--;
       } //After, always have cache lock & ce lock and orig. pin status
@@ -78,7 +82,6 @@ cache_find (block_sector_t sector_num)
       list_push_front (&cache_list, &ce->l_elem);
       return ce;
     }
-    //lock_acquire (&io_lock);
     struct io_entry *ioe == NULL;
     struct list_elem *e;
     for (e = list_begin (&io_list); e != list_end (&io_list);
@@ -87,9 +90,9 @@ cache_find (block_sector_t sector_num)
      if (ioe->sector_num == sector_num)
        break;
     }
-    if (ioe == NULl || ioe->sector_num != sector_num) //Release I/O lock
+    if (ioe == NULl || ioe->sector_num != sector_num) //Not in cache or exiting 
       return NULL; 
-     //went above : lock_release (&io_lock);
+
     ioe->waiters++;
     cond_wait (ioe->io_complete, &cache_lock);  // wait for IO to finish, problem here no cahce lock..
     ioe->waiters--;
@@ -143,9 +146,10 @@ add_to_cache (block_sector_t sector_num, bool zeroed)
   ce = cache_find (sector_num); // should only return once I/O completed
 
   if (ce != NULL) { //need to zero out
+    lock_release (&cache_lock);
     if (zeroed)
       memset (ce->data, 0, BLOCK_SECTOR_SIZE);
-      lock_release (&cache_lock);
+    lock_release (&ce->lock); //ce is pinned and moved to list front in cache_find
     return ce;
   }
 
@@ -164,11 +168,11 @@ add_to_cache (block_sector_t sector_num, bool zeroed)
  
     struct io_entry *evict_ioe = add_io_entry (old_sector_num);
     if (evict_ioe == NULL)
-      return NULL; //What does recovery mean here
+      return NULL; //What does recovery mean here?
 
-    lock_acquire (ce->lock); //No One can access until I/O complete
+    lock_acquire (ce->lock); //no One can access until I/O complete
 
-    lock_release (&cache_lock); // Release glob lock, same sector calls block
+    lock_release (&cache_lock); 
 
     if (ce->dirty) {
       block_write (fs_device, old_sector_num, ce->data);
