@@ -15,12 +15,16 @@ struct cache_entry {
   struct lock lock;
   bool dirty;
   char data[BLOCK_SECTOR_SIZE];
+  bool pinned_cnt;
 };
 
 void cache_init (void);
-struct cache_entry *cache_find (block_sector_t sector_num);
+
 struct cache_entry *cache_add (block_sector_t sector_num);
-struct cache_entry *cache_add_zereod (block_sector_t sector_num);
+struct cache_entry *cache_add_zeroed (block_sector_t sector_num);
+struct cache_entry *cache_find (block_sector_t sector_num);
+
+void cache_unpin (struct cache_entry *ce);
 void cache_flush (void);
 void cache_destroy (void);
 

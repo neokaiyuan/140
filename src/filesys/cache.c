@@ -11,6 +11,8 @@ static struct list cache_list;
 static struct hash cache_hash;
 static struct lock cache_lock;
 
+static int cache_size;
+
 static block_sector_t
 cache_hash_hash_func (const struct hash_elem *e, void *aux UNUSED)
 {
@@ -40,8 +42,25 @@ cache_init ()
   list_init (&cache_list);
   hash_init (&cache_hash, &cache_hash_hash_func, &cache_hash_less_func, NULL);
   lock_init (&cache_lock);
+  cache_size = 0;
 
   thread_create ("flush_thread", PRI_DEFAULT, &flush_func, NULL);
+}
+
+/* Note, not multi-threaded safe */
+static struct cache_entry *
+find (block_sector_t sector_num) 
+{
+  struct cache_entry dummy;
+  dummy.sector_num = sector_num;
+  struct hash_elem *hash_elem = hash_find (&cache_hash, &dummy.h_elem);
+
+  if (hash_elem == NULL) 
+    return NULL;
+
+  struct cache_entry *ce = hash_entry (hash_elem, struct cache_entry, h_elem);
+
+  return ce;
 }
 
 struct cache_entry *
@@ -49,28 +68,36 @@ cache_find (block_sector_t sector_num)
 {
   lock_acquire (&cache_lock);
 
-  struct cache_entry dummy;
-  dummy.sector_num = sector_num;
-  struct hash_elem *hash_elem = hash_find (&cache_hash, &dummy.h_elem);
-  if (hash_elem == NULL) {
-    lock_release (&cache_lock);
-    return NULL;
+  struct cache_entry *ce = find (sector_num);
+
+  if (ce != NULL){
+    ce->pinned_cnt++;
+    list_remove (&ce->l_elem);
+    list_push_front (&cache_list, &ce->l_elem);
   }
-  struct cache_entry *ce = hash_entry (hash_elem, struct cache_entry, h_elem);
-  list_remove (&ce->l_elem);
-  list_push_front (&cache_list, &ce->l_elem);
 
   lock_release (&cache_lock);
   return ce;
 }
 
+void 
+cache_unpin (struct cache_entry *ce) 
+{
+  lock_acquire (&ce->lock);
+
+  if (ce != NULL) 
+    ce->pinned_cnt--;
+
+  lock_release (&ce->lock);
+}
+
 static struct cache_entry * 
-add_to_cache (block_sector_t sector_num, bool zereod)
+add_to_cache (block_sector_t sector_num, bool zeroed)
 {
   lock_acquire (&cache_lock);
   struct cache_entry *ce;
 
-  if (hash_size (&cache_hash) >= MAX_CACHE_SIZE) {
+  if (cache_size  >= MAX_CACHE_SIZE) {
     ASSERT (!list_empty (&cache_list));
 
     struct list_elem *elem = list_pop_back (&cache_list);
@@ -82,20 +109,23 @@ add_to_cache (block_sector_t sector_num, bool zereod)
       block_write (fs_device, ce->sector_num, ce->data);
 
   } else {
+    cache_size++;
     lock_release (&cache_lock);
+
     ce = malloc (sizeof(struct cache_entry));
     if (ce == NULL)
       return NULL;
     lock_init (&ce->lock);  // MAY NEED THIS
   }
   
-  if (zereod)
+  if (zeroed)
     memset (ce->data, 0, BLOCK_SECTOR_SIZE);
   else
     block_read (fs_device, sector_num, ce->data);
 
   ce->sector_num = sector_num;
   ce->dirty = false;
+  ce->pinned_cnt = 1;;
   
   lock_acquire (&cache_lock);
 
@@ -113,7 +143,7 @@ cache_add (block_sector_t sector_num)
 }
 
 struct cache_entry *
-cache_add_zereod (block_sector_t sector_num)
+cache_add_zeroed (block_sector_t sector_num)
 { 
   return add_to_cache (sector_num, true);
 }

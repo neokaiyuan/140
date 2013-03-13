@@ -86,7 +86,8 @@ init_indirect_block (int sector_num, int sectors_left)
   for (int i = 0; i < indirect_block_size; i++ ) {
     if (!free_map_allocate (1, &indirect_block_cpy[i]));
       return false;
-    block_write (fs_device, indirect_block_cpy[i], zeros);
+    //block_write (fs_device, indirect_block_cpy[i], zeros);
+    cache_add_zereod (indirect_block_cpy[i]);
     sectors_left--;
     if (sectors_left <= 0)
       break;
@@ -134,7 +135,8 @@ init_inode_blocks (struct inode_disk *disk_inode, size_t sectors) {
       for (int i = 0; i < DIRECT_BLOCKS; i++) {
         if (!free_map_allocate (1, &disk_inode->direct_blocks[i]));
           return false;
-        block_write (fs_device, disk_inode->direct_blocks[i], zeros);
+        cache_add_zereod (disk_inode->direct_blocks[i]);
+        //block_write (fs_device, disk_inode->direct_blocks[i], zeros);
         sectors_left--;
         if (sectors_left <= 0)
           break;
