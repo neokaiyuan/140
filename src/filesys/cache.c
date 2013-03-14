@@ -1,6 +1,7 @@
 #include <hash.h>
 #include <list.h>
 #include <stdio.h>
+#include <string.h>
 #include "devices/block.h"
 #include "devices/timer.h"
 #include "threads/malloc.h"
@@ -16,8 +17,8 @@ static int cache_size;
 
 struct evict_entry {
   block_sector_t sector_num;
-  list_elem elem;
-  struct cond io_complete;
+  struct list_elem elem;
+  struct condition io_complete;
   int num_waiters;
 };
 
@@ -64,7 +65,7 @@ cache_init ()
 static struct cache_entry *
 cache_find (block_sector_t sector_num)
 {
-  while (true) {
+  while (true) { //Note, holding I/O lock on entrace
     struct cache_entry dummy;
     dummy.sector_num = sector_num;
     struct hash_elem *hash_elem = hash_find (&cache_hash, &dummy.h_elem);
@@ -84,7 +85,7 @@ cache_find (block_sector_t sector_num)
       return ce;
     }
 
-    struct evict_entry *ee == NULL;
+    struct evict_entry *ee = NULL;
     struct list_elem *e;
     for (e = list_begin (&evict_list); e != list_end (&evict_list);
          e = list_next (e)) {
@@ -96,10 +97,10 @@ cache_find (block_sector_t sector_num)
       return NULL; 
 
     ee->num_waiters++;
-    cond_wait (ee->io_complete, &cache_lock);  // wait for outgoing IO to finish
+    cond_wait (&ee->io_complete, &cache_lock);  // wait for outgoing IO to finish
     ee->num_waiters--;
     if (ee->num_waiters <= 0) {
-      list_remove (ee->elem);
+      list_remove (&ee->elem);
       free (ee);
     }
   }
@@ -107,27 +108,28 @@ cache_find (block_sector_t sector_num)
 }
 
 static struct evict_entry *
-add_evict_entry (block_sector_t sector_nume)
+add_evict_entry (block_sector_t sector_num)
 {
-  struct evict_entry *ee = malloc (sizeof(evict_entry));
+  struct evict_entry *ee = malloc (sizeof(struct evict_entry));
   if (ee == NULL)
     return NULL;
   ee->sector_num = sector_num;
   ee->num_waiters = 0;
   cond_init (&ee->io_complete);
-  list_push_back (&evict_list, &ioe->elem);
+  list_push_back (&evict_list, &ee->elem);
   return ee;
 }
 
 /* Not thread safe, assumes a lock is already head: cache lock*/
-static struct cache_entry *
+struct cache_entry *
 find_evict_cache_entry (void) 
 {
   struct list_elem *e;
+  struct cache_entry *ce;
   while (true) {
-    for (e = list_end (&cache_list); e != list_begin (&cache_list); 
+    for (e = list_back (&cache_list); e != list_head (&cache_list); 
          e = list_prev (e)) {   // iterate backwards through list
-      ce = list_entry (elem, struct cache_entry, l_elem);
+      ce = list_entry (e, struct cache_entry, l_elem);
       if (ce->pinned_cnt == 0)
         break;
     }   
@@ -138,7 +140,7 @@ find_evict_cache_entry (void)
   return ce;
 }
 
-static struct cache_entry * 
+struct cache_entry * 
 add_to_cache (block_sector_t sector_num, bool zeroed)
 {
   lock_acquire (&cache_lock);
@@ -154,32 +156,44 @@ add_to_cache (block_sector_t sector_num, bool zeroed)
   }
 
   if (cache_size >= MAX_CACHE_SIZE) {   // cache full
+    struct evict_entry *ee;
     ASSERT (!list_empty (&cache_list));
 
-    ce = find_evict_cache_entry (); // cache entry to evict
-    lock_acquire (ce->lock); // no one can access until in- and outbound I/O complete
+    
 
+    ce = find_evict_cache_entry (); // cache entry to evict
+    lock_acquire (&ce->lock); // no one can access until in- and outbound I/O complete
+    
     block_sector_t old_sector_num = ce->sector_num;
     bool old_dirty = ce->dirty;
 
+    hash_delete (&cache_hash, &ce->h_elem);
     ce->sector_num = sector_num;
     ce->dirty = false;
     ce->pinned_cnt = 1;
 
     if (old_dirty) {
-      struct evict_entry *ee = add_evict_entry (old_sector_num);
-      if (ee == NULL)
+      ee = add_evict_entry (old_sector_num);
+      if (ee == NULL) {
+        lock_release (&cache_lock);
         return NULL; // What does recovery mean here? evict entry malloc fail
+      }
     }
 
     list_remove (&ce->l_elem);
     list_push_front (&cache_list, &ce->l_elem);
+    hash_insert (&cache_hash, &ce->h_elem);
     lock_release (&cache_lock); 
 
     if (old_dirty) {
       block_write (fs_device, old_sector_num, ce->data);  // holds old data temporarily
       lock_acquire (&cache_lock);
-      cond_broadcast (&ee->io_complete, &cache_lock); //Wake blocked threads
+      if (ee->num_waiters == 0) {
+        list_remove (&ee->elem);
+        free (ee);
+      } else {
+        cond_broadcast (&ee->io_complete, &cache_lock); //Wake blocked threads
+      }
       lock_release (&cache_lock);
     }
 
@@ -209,6 +223,15 @@ add_to_cache (block_sector_t sector_num, bool zeroed)
   return ce;
 }
 
+
+static void 
+cache_unpin (struct cache_entry *ce) 
+{
+  lock_acquire (&cache_lock);
+  ce->pinned_cnt--;
+  lock_release (&cache_lock);
+}
+
 bool
 cache_read (block_sector_t sector_num, void *dest, int sector_ofs, 
            int chunk_size)
@@ -222,13 +245,14 @@ cache_read (block_sector_t sector_num, void *dest, int sector_ofs,
 }
 
 bool
-cache_write (block_sector_t sector_num, void *dest, int sector_ofs, 
+cache_write_at (block_sector_t sector_num, void *src, int sector_ofs, 
              int chunk_size)
 { 
   struct cache_entry *ce = add_to_cache (sector_num, false);
   if (ce == NULL)
     return false; 
-  memcpy (ce->data + sector_ofs, dest, chunk_size);
+  memcpy (ce->data + sector_ofs, src, chunk_size);
+  ce->dirty = true;
   cache_unpin (ce);
   return true;
 }
@@ -241,14 +265,6 @@ cache_write_zeroed (block_sector_t sector_num)
     return false;
   cache_unpin (ce);
   return true;
-}
-
-void 
-cache_unpin (struct cache_entry *ce) 
-{
-  lock_acquire (&cache_lock);
-  ce->pinned_cnt--;
-  lock_release (&cache_lock);
 }
 
 void
