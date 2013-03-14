@@ -191,7 +191,7 @@ add_to_cache (block_sector_t sector_num, bool zeroed)
       return NULL;
     ce->sector_num = sector_num;
     ce->dirty = false;
-    ce->pinned_cnt = 1;
+    ce->pinned_cnt = 1; // default status is pinned, unpineed in cache_read/write
     lock_init (&ce->lock);  
     lock_acquire (&ce->lock); // No one can access until inbound I/O complete
 
@@ -205,7 +205,7 @@ add_to_cache (block_sector_t sector_num, bool zeroed)
   else
     block_read (fs_device, sector_num, ce->data);
 
-  lock_release (&ce->lock)
+  lock_release (&ce->lock);
   return ce;
 }
 
@@ -218,9 +218,7 @@ cache_read (block_sector_t sector_num, void *dest, int sector_ofs,
     return false; 
   memcpy (dest, ce->data + sector_ofs, chunk_size);
   cache_unpin (ce);
-  //lock_release (ce->lock);
   return true;
-  //return add_to_cache (sector_num, false);
 }
 
 bool
@@ -232,9 +230,7 @@ cache_write (block_sector_t sector_num, void *dest, int sector_ofs,
     return false; 
   memcpy (ce->data + sector_ofs, dest, chunk_size);
   cache_unpin (ce);
-  //lock_release (ce->lock);
   return true;
-  //return add_to_cache (sector_num, false);
 }
 
 bool
@@ -244,38 +240,38 @@ cache_write_zeroed (block_sector_t sector_num)
   if (ce == NULL)
     return false;
   cache_unpin (ce);
-  //lock_release (ce->lock);
   return true;
-  //return add_to_cache (sector_num, true);
 }
 
 void 
 cache_unpin (struct cache_entry *ce) 
 {
   lock_acquire (&cache_lock);
-
-  if (ce != NULL) 
-    ce->pinned_cnt--;
-
+  ce->pinned_cnt--;
   lock_release (&cache_lock);
 }
 
 void
 cache_flush ()
 {
-  //lock_acquire (&cache_lock);
+  lock_acquire (&cache_lock);
   struct list_elem *e;
   for (e = list_begin (&cache_list); e != list_end (&cache_list);
        e = list_next (e)) {
+    if (e == list_tail (&cache_list)) 
+      return;
     struct cache_entry *ce = list_entry (e, struct cache_entry, l_elem);
-    if (ce->dirty) {
-      lock_acquire (ce->lock);
+    if (lock_try_acquire (&ce->lock) && ce->dirty) {
+      lock_release (&cache_lock);
       block_write (fs_device, ce->sector_num, ce->data);
       ce->dirty = false;
+      ce->pinned_cnt++;   // prevent eviction from moving this to front
       lock_release (&ce->lock);
+      lock_acquire (&cache_lock);
+      ce->pinned_cnt--;
     }
   }
-  //lock_release (&cache_lock);
+  lock_release (&cache_lock);
 }
 
 void
@@ -294,20 +290,3 @@ cache_destroy ()
 
   lock_release (&cache_lock);
 }
-
-/*
-void
-cache_read (struct cache_entry *ce, void *dest)
-{
-  lock_acquire (&ce->lock);
-  block_read (fs_device, ce->sector_num, dest);
-  lock_release (&ce->lock);
-}
-
-void cache_write (struct cache_entry *ce, void *dest)
-{
-  lock_acquire (&ce->lock);
-  block_write (fs_device, ce->sector_num, dest);
-  lock_release (&ce->lock);
-}
-*/
