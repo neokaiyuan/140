@@ -229,10 +229,6 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
     if (!success)
       return 0;
 
-//      memcpy (buffer + bytes_read, ce->data, BLOCK_SECTOR_SIZE); 
-//    else 
-//      memcpy (buffer + bytes_read, ce->data + sector_ofs, chunk_size);
-      
     /* Advance. */
     size -= chunk_size;
     offset += chunk_size;
@@ -279,9 +275,6 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
     else
       success = cache_write_at (sector_idx, buffer + bytes_written, sector_ofs, chunk_size);
 
-//      memcpy (ce->data, buffer + bytes_written, BLOCK_SECTOR_SIZE);
-//    else
-//      memcpy (ce->data + sector_ofs, buffer + bytes_written, chunk_size);
     if (!success)
       return 0;
 

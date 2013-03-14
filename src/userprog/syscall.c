@@ -188,13 +188,13 @@ exit (int status)
 }
 
 static pid_t
-exec (const char *file)
+exec (const char *path)
 {
-  if (!str_valid (file)) 
+  if (!str_valid (path)) 
     exit(-1);
 
   struct thread *t = thread_current();
-  pid_t pid = (pid_t) process_execute (file);
+  pid_t pid = (pid_t) process_execute (path);
   if (pid == TID_ERROR) return -1;
   sema_down (&t->child_exec_sema); // look at start_process
   if (!t->child_exec_success) return -1;
@@ -208,33 +208,33 @@ wait (pid_t pid)
 }
 
 static bool
-create (const char *file, unsigned initial_size)
+create (const char *path, unsigned initial_size)
 {
-  if (!str_valid(file)) 
+  if (!str_valid(path)) 
     exit(-1);
 
   lock_acquire(&filesys_lock);
-  bool create = filesys_create (file, initial_size);
+  bool create = filesys_create (path, initial_size);
   lock_release(&filesys_lock);
   return create;
 }
 
 static bool
-remove (const char *file)
+remove (const char *path)
 {
-  if (!str_valid(file)) 
+  if (!str_valid(path)) 
     return false;
 
   lock_acquire(&filesys_lock);
-  bool remove = filesys_remove (file);
+  bool remove = filesys_remove (path);
   lock_release(&filesys_lock);
   return remove;
 }
 
 static int
-open (const char *file)
+open (const char *path)
 {
-  if (!str_valid(file)) 
+  if (!str_valid(path)) 
     exit(-1);
 
   struct thread *t = thread_current ();
@@ -243,7 +243,7 @@ open (const char *file)
   int new_fd = t->next_open_file_index;
 
   lock_acquire(&filesys_lock);
-  t->file_ptrs[new_fd] = filesys_open (file);
+  t->file_ptrs[new_fd] = filesys_open (path);
   lock_release(&filesys_lock);
 
   if (t->file_ptrs[new_fd] == NULL)

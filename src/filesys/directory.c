@@ -27,7 +27,11 @@ struct dir_entry
 bool
 dir_create (block_sector_t sector, size_t entry_cnt)
 {
-  return inode_create (sector, entry_cnt * sizeof (struct dir_entry));
+  bool success = true;
+  if (!inode_create (sector, (entry_cnt + 2) * sizeof (struct dir_entry)))
+    success = false;
+
+                 && dir_add (;
 }
 
 /* Opens and returns the directory for the given INODE, of which
@@ -91,7 +95,7 @@ dir_get_inode (struct dir *dir)
    otherwise, returns false and ignores EP and OFSP. */
 static bool
 lookup (const struct dir *dir, const char *name,
-        struct dir_entry *ep, off_t *ofsp) 
+        struct dir_entry *ep, off_t *ofsp, bool need_dir) 
 {
   struct dir_entry e;
   size_t ofs;
@@ -103,6 +107,8 @@ lookup (const struct dir *dir, const char *name,
        ofs += sizeof e) 
     if (e.in_use && !strcmp (name, e.name)) 
       {
+        if (need_dir && !e.is_dir)
+          return false;
         if (ep != NULL)
           *ep = e;
         if (ofsp != NULL)
@@ -118,31 +124,14 @@ lookup (const struct dir *dir, const char *name,
    a null pointer.  The caller must close *INODE. */
 bool
 dir_lookup (const struct dir *dir, const char *name,
-            struct inode **inode) 
+            struct inode **inode, bool need_dir) 
 {
   struct dir_entry e;
 
   ASSERT (dir != NULL);
   ASSERT (name != NULL);
 
-  if (lookup (dir, name, &e, NULL))
-    *inode = inode_open (e.inode_sector);
-  else
-    *inode = NULL;
-
-  return *inode != NULL;
-}
-
-bool
-dir_lookup (const struct dir *dir, const char *name,
-            struct inode **inode) 
-{
-  struct dir_entry e;
-
-  ASSERT (dir != NULL);
-  ASSERT (name != NULL);
-
-  if (lookup (dir, name, &e, NULL))
+  if (lookup (dir, name, &e, NULL, need_dir))
     *inode = inode_open (e.inode_sector);
   else
     *inode = NULL;
@@ -192,8 +181,8 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
   e.inode_sector = inode_sector;
   success = inode_write_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
 
- done:
-  return success;
+  done:
+    return success;
 }
 
 /* Removes any entry for NAME in DIR.

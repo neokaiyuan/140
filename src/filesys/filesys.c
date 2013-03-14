@@ -44,17 +44,21 @@ filesys_done (void)
 }
 
 static dir *
-get_lowest_dir (const char *name)
+get_lowest_dir (const char *path)
 {
   struct thread *t = thread_current ();
-  const char *save_ptr = name;
+  const char *save_ptr = path;
   struct dir *upper_dir;
-  if (strchr (name, '/') == name) { // if absolute pathname
+  if (strchr (path, '/') == path) { // if absolute pathname
     save_ptr++;
     upper_dir = dir_open_root ();
+    if (upper_dir == NULL)
+      PANIC ("open root dir failed");
   } else {                          // relative pathname
     upper_dir = dir_reopen (t->curr_dir);
-  }  
+    if (upper_dir == NULL)
+      PANIC ("open process working directory failed");
+  }
 
   int path_len = strlen (save_ptr);
   char path[path_len + 1];
@@ -65,30 +69,42 @@ get_lowest_dir (const char *name)
   char *token;
   for (token = strtok_r (path, "/", &save_ptr); token != NULL;
        token = strtok_r (NULL, "/", &save_ptr)) {
-    bool dir_exists = dir_lookup (upper_dir, token, &lower_dir_inode);
+    if (strchr (save_ptr, '/') == NULL)
+      break;
+    if (strcmp (token, ".") == 0)
+      continue;
+
+    bool dir_exists = dir_lookup (upper_dir, token, &lower_dir_inode, true);
+    dir_close (upper_dir);
     if (!dir_exists)
       return NULL;
+
     struct dir *lower_dir = dir_open (lower_dir_inode);
+    if (lower_dir == NULL)
+      return NULL;
     upper_dir = lower_dir;
   }
-    
 
-  return 
+  return upper_dir; 
 }
 
-/* Creates a file named NAME with the given INITIAL_SIZE.
+/* Creates a file from PATH with the given INITIAL_SIZE.
    Returns true if successful, false otherwise.
    Fails if a file named NAME already exists,
    or if internal memory allocation fails. */
 bool
-filesys_create (const char *name, off_t initial_size) 
+filesys_create (const char *path, off_t initial_size) 
 {
   block_sector_t inode_sector = 0;
-  struct dir *dir = dir_open_root ();
+  struct dir *dir = get_lowest_dir (path);
+  if (dir == NULL)
+    return false;
+  char *filename = strrchr (path, '/') + 1;
+
   bool success = (dir != NULL
                   && free_map_allocate (1, &inode_sector)
                   && inode_create (inode_sector, initial_size)
-                  && dir_add (dir, name, inode_sector));
+                  && dir_add (dir, filename, inode_sector));
   if (!success && inode_sector != 0) 
     free_map_release (inode_sector, 1);
   dir_close (dir);
@@ -96,33 +112,36 @@ filesys_create (const char *name, off_t initial_size)
   return success;
 }
 
-/* Opens the file with the given NAME.
+/* Opens the file with the given pathname PATH.
    Returns the new file if successful or a null pointer
    otherwise.
    Fails if no file named NAME exists,
    or if an internal memory allocation fails. */
 struct file *
-filesys_open (const char *name)
+filesys_open (const char *path)
 {
-  struct dir *dir = dir_open_root ();
+  struct dir *dir = get_lowest_dir (path);
+  if (dir == NULL)
+    return NULL;
+  char *filename = strrchr (path, '/') + 1;
   struct inode *inode = NULL;
 
-  if (dir != NULL)
-    dir_lookup (dir, name, &inode);
+  dir_lookup (dir, filename, &inode);
   dir_close (dir);
 
   return file_open (inode);
 }
 
-/* Deletes the file named NAME.
+/* Deletes the file at pathname PATH.
    Returns true if successful, false on failure.
    Fails if no file named NAME exists,
    or if an internal memory allocation fails. */
 bool
-filesys_remove (const char *name) 
+filesys_remove (const char *path) 
 {
-  struct dir *dir = dir_open_root ();
-  bool success = dir != NULL && dir_remove (dir, name);
+  struct dir *dir = get_lowest_dir (path);
+  char *filename = strrchr (path, '/') + 1;
+  bool success = dir != NULL && dir_remove (dir, filename);
   dir_close (dir); 
 
   return success;

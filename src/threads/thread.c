@@ -575,10 +575,12 @@ init_thread (struct thread *t, const char *name, int priority)
   /* the following for project 4 */
   if (t == initial_thread) {
     t->curr_dir = dir_open_root ();
+    if (t->curr_dir == NULL)
+      PANIC ("open root dir failed");
   } else {
     t->curr_dir = dir_reopen (thread_current ()->curr_dir);
     if (t->curr_dir == NULL)
-      PANIC ("can't get memory for string to store current directory");
+      PANIC ("open process working dir failed");
   }
 
   t->magic = THREAD_MAGIC;
