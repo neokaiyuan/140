@@ -14,16 +14,18 @@ struct cache_entry {
   struct hash_elem h_elem;
   struct lock lock;
   bool dirty;
-  char data[BLOCK_SECTOR_SIZE];
   bool pinned_cnt;
+  char data[BLOCK_SECTOR_SIZE];
 };
 
 void cache_init (void);
 
-struct cache_entry *cache_get (block_sector_t sector_num);
-struct cache_entry *cache_get_zeroed (block_sector_t sector_num);
+bool cache_get (block_sector_t sector_num, void *dest, int sector_ofs, 
+                                           int chunk_size);
+bool cache_get_zeroed (block_sector_t sector_num, void *dest, int sector_ofs,
+                                      int chunk_size);
 
-void cache_unpin (struct cache_entry *ce);
+//void cache_unpin (struct cache_entry *ce);
 void cache_flush (void);
 void cache_destroy (void);
 

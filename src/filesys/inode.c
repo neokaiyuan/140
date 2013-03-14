@@ -380,15 +380,15 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset)
     if (chunk_size <= 0)
       break;
 
-    struct cache_entry *ce = cache_find (sector_idx);
-      if (ce == NULL)
-        ce = cache_add (sector_idx);
-      if (ce == NULL) 
-        return 0;
+    bool success = cache_get (sector_idx);
     if (sector_ofs == 0 && chunk_size == BLOCK_SECTOR_SIZE)
-      memcpy (buffer + bytes_read, ce->data, BLOCK_SECTOR_SIZE); 
+      success = cache_get (sector_idx, buffer + bytes_read, 0, BLOCK_SECTOR_SIZE);
+      //memcpy (buffer + bytes_read, ce->data, BLOCK_SECTOR_SIZE); 
     else 
-      memcpy (buffer + bytes_read, ce->data + sector_ofs, chunk_size);
+      success = cache_get (sector_idx, buffer + bytes_read, sector_ofs, chunk_size);
+      //memcpy (buffer + bytes_read, ce->data + sector_ofs, chunk_size);
+    if (!success) 
+      return 0;
       
     /* Advance. */
     size -= chunk_size;
