@@ -29,7 +29,7 @@ dir_create (block_sector_t sector, block_sector_t parent_sector,
             size_t entry_cnt)
 {
 
-  if (!inode_create (sector, (entry_cnt + 100) * sizeof (struct dir_entry))) {
+  if (!inode_create (sector, (entry_cnt + 2) * sizeof (struct dir_entry))) {
     return false;
   }
 
