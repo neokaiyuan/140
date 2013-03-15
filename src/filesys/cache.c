@@ -15,6 +15,11 @@ static struct list evict_list; // incoming I/Os taken care of by ce->lock
 //static struct lock io_lock;
 static int cache_size;
 
+/*//READ AHEAD
+static struct list read_ahead_list;
+static struct lock read_ahead_lock;
+static struct semaphore read_ahead_sema;
+*/
 struct evict_entry {
   block_sector_t sector_num;
   struct list_elem elem;
@@ -54,6 +59,14 @@ cache_init ()
   list_init (&evict_list);
   //lock_init (&io_lock);
   cache_size = 0;
+
+  /*// READ AHEAD
+  list_init (&read_ahead_list);
+  lock_init (&read_ahead_lock);
+  sema_init (&read_ahead_sema, 0);
+
+  thread_create ("read_ahead", PRI_DEFAULT, &cache_read_ahead, NULL);
+  */
   thread_create ("flush_thread", PRI_DEFAULT, &flush_func, NULL);
 }
 
@@ -243,6 +256,51 @@ cache_read (block_sector_t sector_num, void *dest, int sector_ofs,
   cache_unpin (ce);
   return true;
 }
+
+/*//READ AHEAD
+bool
+cache_read (block_sector_t sector_num, int next_sector, 
+                       void *dest, int sector_ofs, int chunk_size)
+{ 
+  struct cache_entry *ce = add_to_cache (sector_num, false);
+  if (ce == NULL)
+    return false;
+ 
+  if (next_sector >= 0){  
+    struct read_ahead_entry *re = malloc (sizeof(struct read_ahead_entry));
+    if (re == NULL)
+      return false;
+    re->sector_num = next_sector;
+    lock_acquire (&read_ahead_lock);
+    list_push_back (&read_ahead_list, &re->elem);
+    lock_release (&read_ahead_lock);
+    sema_up (&read_ahead_sema);
+    //printf ("finished adding read ahead elem\n");
+  }
+  memcpy (dest, ce->data + sector_ofs, chunk_size);
+  cache_unpin (ce);
+  return true;
+}
+
+void 
+cache_read_ahead ()
+{
+  while (true) {
+    sema_down (&read_ahead_sema);
+    //printf ("made it past sema_down in cache_read_ahead\n");
+    lock_acquire (&read_ahead_lock);
+    struct list_elem *e = list_pop_front (&read_ahead_list);
+    lock_release (&read_ahead_lock);
+
+    //if (e == list_end (&read_ahead_list)) return;
+    struct read_ahead_entry *re = list_entry (e, struct read_ahead_entry, 
+                                                                      elem);
+     add_to_cache (re->sector_num, false);
+  }
+
+}
+
+*/
 
 bool
 cache_write_at (block_sector_t sector_num, const void *src, int sector_ofs, 

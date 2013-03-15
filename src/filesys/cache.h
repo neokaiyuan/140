@@ -18,6 +18,18 @@ struct cache_entry {
   char data[BLOCK_SECTOR_SIZE];
 };
 
+/*//READ AHEAD
+struct read_ahead_entry {
+  block_sector_t sector_num;
+  struct list_elem elem;
+};
+
+bool cache_read (block_sector_t sector_num, int next_sector,
+                            void *dest, int sector_ofs, int chunk_size);
+
+void cache_read_ahead (void);
+
+*/
 void cache_init (void);
 
 bool cache_read (block_sector_t sector_num, void *dest, int sector_ofs,
@@ -29,5 +41,6 @@ bool cache_write_zeroed (block_sector_t sector_num);
 //void cache_unpin (struct cache_entry *ce);
 void cache_flush (void);
 void cache_destroy (void);
+
 
 #endif
