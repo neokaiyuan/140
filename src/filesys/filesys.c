@@ -180,6 +180,9 @@ filesys_open (const char *path, bool *is_dir)
 bool
 filesys_remove (const char *path) 
 {
+  if (strcmp (path, "/") == 0)
+    return false;
+
   struct dir *dir = get_lowest_dir (path);
   if (dir == NULL)
     return false;
