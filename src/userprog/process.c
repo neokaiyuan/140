@@ -38,7 +38,7 @@ process_execute (const char *path)
   if (fn_copy == NULL)
     return TID_ERROR;
   strlcpy (fn_copy, path, PGSIZE);
-  char *filename = strrchr (path, '/');
+  const char *filename = strrchr (path, '/');
   if (filename == NULL)
     filename = path;
 
@@ -134,10 +134,6 @@ start_process (void *aux)
       list_push_back (&t->parent->children_exit_info, &info->elem);
     }
     
-    /* initialize file ptrs to 0 */
-    memset(t->file_ptrs, 0, sizeof(struct file *) * MAX_FD_INDEX+1);  
-    t->next_open_file_index = 2;  // 0 and 1 reserved for stdin and stdout
-
     /* load arguments onto user stack */
     setup_user_stack (&if_.esp, &save_ptr, path); 
   }
@@ -222,23 +218,18 @@ process_exit (void)
   }
  
   if (t->my_exec != NULL) {  // checks if executable
-    lock_acquire(&filesys_lock);
     file_close(t->my_exec);
-    lock_release(&filesys_lock);
   }
 
-  /*Make sure all files opened were closed, starts at i = 2
-    since 0 and 1 are reserved for stdin and stdout in the 
-    file ptr array */
-  struct file *curr_file;
-  int i;
-  for (i = 2; i <= MAX_FD_INDEX; i++) {
-    curr_file = t->file_ptrs[i];
-    if (curr_file != NULL) {
-      lock_acquire(&filesys_lock);
-      file_close(curr_file);
-      lock_release(&filesys_lock);
-    }
+  /* Make sure all files and dirs opened were closed */
+  struct list_elem *e;
+  for (e = list_begin (&t->fd_list); e != list_end (&t->fd_list);
+       e = list_next (e)) {
+    struct fd_entry *fde = list_entry (e, struct fd_entry, l_elem);
+    if (fde->is_dir)
+      dir_close ((struct dir *) fde->file);
+    else
+      file_close ((struct file *) fde->file); // locks?
   }
 
   printf ("%s: exit(%d)\n", t->name, t->exit_status);
@@ -363,8 +354,6 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
 bool
 load (const char *path, void (**eip) (void), void **esp) 
 {
-  lock_acquire(&filesys_lock);
-
   struct thread *t = thread_current ();
   struct Elf32_Ehdr ehdr;
   struct file *file = NULL;
@@ -379,7 +368,7 @@ load (const char *path, void (**eip) (void), void **esp)
   process_activate ();
 
   /* Open executable file. */
-  file = filesys_open (path);
+  file = filesys_open (path, NULL);
 
   if (file == NULL) 
     {
@@ -388,9 +377,7 @@ load (const char *path, void (**eip) (void), void **esp)
     }
 
   /* Read and verify executable header. */
-  //lock_acquire(&filesys_lock);
   int num_bytes = file_read (file, &ehdr, sizeof ehdr);
-  //lock_release(&filesys_lock);
   if ( num_bytes != sizeof ehdr
       || memcmp (ehdr.e_ident, "\177ELF\1\1\1", 7)
       || ehdr.e_type != 2
@@ -485,7 +472,6 @@ load (const char *path, void (**eip) (void), void **esp)
     file_close (file);
   }
 
-  lock_release(&filesys_lock);
   return success;
 }
 

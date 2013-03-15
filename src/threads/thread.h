@@ -2,9 +2,11 @@
 #define THREADS_THREAD_H
 
 #include <debug.h>
+#include <hash.h>
 #include <list.h>
 #include <stdint.h>
 #include "synch.h"
+#include "devices/block.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -27,8 +29,6 @@ typedef int tid_t;
 #define NUM_PRIORITIES 64								/* number of priorities */
 
 #define NOBODY -1
-
-#define MAX_FD_INDEX 129                /* maximum possible fd value */
 
 struct dir;
 
@@ -131,22 +131,31 @@ struct thread
 
     /* entries begin at index 2 to ensure one-to-one mapping between
        fds and indexes */
-    struct file *file_ptrs[MAX_FD_INDEX + 1];
     struct file *my_exec;
-    int next_open_file_index;
 
     struct lock wait_lock;               /* used to prevent race conditions in syscall wait */
 
     /* the following for project 4 */
-    struct dir *curr_dir; /* current directory for this process */
+    block_sector_t pwd; /* process working directory sector */
+    struct list fd_list;
+    struct hash fd_hash;
+    int next_open_fd;
+    int num_open_files;
   };
 
-struct exit_info
-{
+struct exit_info {
   tid_t tid;
   int exit_status;
   struct thread *child;
   struct list_elem elem;
+};
+
+struct fd_entry {
+  int fd;
+  void *file;   // either struct file * or struct dir *
+  bool is_dir;
+  struct list_elem l_elem;
+  struct hash_elem h_elem;
 };
 
 /* If false (default), use round-robin scheduler.

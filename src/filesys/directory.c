@@ -25,13 +25,30 @@ struct dir_entry
 /* Creates a directory with space for ENTRY_CNT entries in the
    given SECTOR.  Returns true if successful, false on failure. */
 bool
-dir_create (block_sector_t sector, size_t entry_cnt)
+dir_create (block_sector_t sector, block_sector_t parent_sector, 
+            size_t entry_cnt)
 {
-  bool success = true;
-  if (!inode_create (sector, (entry_cnt + 2) * sizeof (struct dir_entry)))
-    success = false;
+  printf ("inside dir_create\n");
 
-                 && dir_add (;
+  if (!inode_create (sector, (entry_cnt + 2) * sizeof (struct dir_entry))) {
+    printf ("failing inode_create\n");
+    return false;
+  }
+
+  struct dir *dir = dir_open (inode_open (sector));
+  if (dir == NULL) {
+    printf ("failing dir_open\n");
+    return false;
+  }
+
+  if (!dir_add (dir, ".", sector, true) || 
+      !dir_add (dir, "..", parent_sector, true)) {
+    printf ("failing dir_add\n");
+    return false;
+  }
+
+  dir_close (dir);
+  return true;
 }
 
 /* Opens and returns the directory for the given INODE, of which
@@ -146,8 +163,10 @@ dir_lookup (const struct dir *dir, const char *name,
    Fails if NAME is invalid (i.e. too long) or a disk or memory
    error occurs. */
 bool
-dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
+dir_add (struct dir *dir, const char *name, block_sector_t inode_sector, bool is_dir)
 {
+  printf ("in dir_add\n");
+
   struct dir_entry e;
   off_t ofs;
   bool success = false;
@@ -156,12 +175,16 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
   ASSERT (name != NULL);
 
   /* Check NAME for validity. */
-  if (*name == '\0' || strlen (name) > NAME_MAX)
-    return false;
-
-  /* Check that NAME is not in use. */
-  if (lookup (dir, name, NULL, NULL))
+  if (*name == '\0' || strlen (name) > NAME_MAX) {
+    printf ("dir name empty or too long\n");
     goto done;
+  }
+
+  /* Check that NAME is not in use for any file or directory. */
+  if (lookup (dir, name, NULL, NULL, false)) {
+    printf ("dir already exists\n");
+    goto done;
+  }  
 
   /* Set OFS to offset of free slot.
      If there are no free slots, then it will be set to the
@@ -177,9 +200,12 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector)
 
   /* Write slot. */
   e.in_use = true;
+  e.is_dir = is_dir;
   strlcpy (e.name, name, sizeof e.name);
   e.inode_sector = inode_sector;
   success = inode_write_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
+  if (success == false)
+    printf ("inode_write_at failed\n");
 
   done:
     return success;
@@ -200,13 +226,27 @@ dir_remove (struct dir *dir, const char *name)
   ASSERT (name != NULL);
 
   /* Find directory entry. */
-  if (!lookup (dir, name, &e, &ofs))
+  if (!lookup (dir, name, &e, &ofs, false))
     goto done;
 
   /* Open inode. */
   inode = inode_open (e.inode_sector);
   if (inode == NULL)
     goto done;
+
+  /* Check for non-empty directory */
+  if (e.is_dir) {
+    struct dir *remove_dir = dir_open (inode);
+    if (remove_dir == NULL)
+      goto done;
+    if (inode_get_open_cnt (remove_dir->inode) > 1)  // if open by others
+      goto done;
+    char name[NAME_MAX + 1];
+    while (dir_readdir (remove_dir, name)) {
+      if (strcmp (name, ".") != 0 && strcmp (name, "..") != 0)
+        goto done;
+    }
+  }
 
   /* Erase directory entry. */
   e.in_use = false;
@@ -233,7 +273,7 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
   while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) 
     {
       dir->pos += sizeof e;
-      if (e.in_use)
+      if (e.in_use && strcmp (e.name, ".") != 0 && strcmp (e.name, "..") != 0)
         {
           strlcpy (name, e.name, NAME_MAX + 1);
           return true;

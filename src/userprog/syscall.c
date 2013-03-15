@@ -1,13 +1,15 @@
 #include "userprog/syscall.h"
 #include <stdio.h>
+#include <string.h>
 #include <syscall-nr.h>
-
 #include "devices/input.h"
 #include "devices/shutdown.h"
+#include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
-#include "lib/string.h"
+#include "filesys/inode.h"
 #include "threads/interrupt.h"
+#include "threads/malloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 #include "userprog/pagedir.h"
@@ -37,6 +39,8 @@ static bool isdir (int fd);
 static int inumber (int fd);
 
 #define MAX_WRITE_SIZE 500
+
+struct inode;
 
 void
 syscall_init (void) 
@@ -146,7 +150,9 @@ mem_valid (const void *ptr, int size)
   return true;
 }
 
-static bool str_valid (const char *ptr) {
+static bool 
+str_valid (const char *ptr) 
+{
   if (ptr == (char *) NULL || ptr >= (char *) PHYS_BASE || 
       pagedir_get_page(thread_current()->pagedir, ptr) == NULL)
     return false;
@@ -182,8 +188,7 @@ halt (void)
 static void
 exit (int status)
 {
-  struct thread *t = thread_current();
-  t->exit_status = status;
+  thread_current ()->exit_status = status;
   thread_exit ();
 }
 
@@ -213,10 +218,7 @@ create (const char *path, unsigned initial_size)
   if (!str_valid(path)) 
     exit(-1);
 
-  lock_acquire(&filesys_lock);
-  bool create = filesys_create (path, initial_size);
-  lock_release(&filesys_lock);
-  return create;
+  return filesys_create (path, initial_size, false);
 }
 
 static bool
@@ -225,10 +227,7 @@ remove (const char *path)
   if (!str_valid(path)) 
     return false;
 
-  lock_acquire(&filesys_lock);
-  bool remove = filesys_remove (path);
-  lock_release(&filesys_lock);
-  return remove;
+  return filesys_remove (path);
 }
 
 static int
@@ -238,150 +237,208 @@ open (const char *path)
     exit(-1);
 
   struct thread *t = thread_current ();
-  if (t->next_open_file_index == MAX_FD_INDEX+1) 
+
+  bool is_dir;
+  struct fd_entry *fde = malloc (sizeof (struct fd_entry));
+  if (fde == NULL)
     return -1;
-  int new_fd = t->next_open_file_index;
-
-  lock_acquire(&filesys_lock);
-  t->file_ptrs[new_fd] = filesys_open (path);
-  lock_release(&filesys_lock);
-
-  if (t->file_ptrs[new_fd] == NULL)
+  fde->fd = t->next_open_fd; 
+  fde->file = filesys_open (path, &is_dir);
+  if (fde->file == NULL)
     return -1;
+  fde->is_dir = is_dir;
+  list_push_back (&t->fd_list, &fde->l_elem);
+  hash_insert (&t->fd_hash, &fde->h_elem);
 
-  int new_index = 2;
-  while (t->file_ptrs[new_index] != NULL && new_index != MAX_FD_INDEX)
-    new_index++;
-  if (new_index == MAX_FD_INDEX) 
-    t->next_open_file_index = MAX_FD_INDEX+1; //Sentinel for no free fd
-  else 
-    t->next_open_file_index = new_index; 
+  t->next_open_fd++; 
+  t->num_open_files++;
+  return fde->fd;
+}
 
-  return new_fd;
+static struct fd_entry *
+get_fd_entry (int fd)
+{
+  struct thread *t = thread_current ();
+  struct fd_entry dummy;
+  dummy.fd = fd;
+  struct hash_elem *he = hash_find (&t->fd_hash, &dummy.h_elem);
+  if (he == NULL)
+    exit(-1);
+  return hash_entry (he, struct fd_entry, h_elem);
 }
 
 static int
 filesize (int fd)
 {
-  struct thread *t = thread_current ();
-  if (fd == 0 || fd == 1 || fd >= MAX_FD_INDEX + 1 || t->file_ptrs[fd] == NULL)
+  if (fd == 0 || fd == 1)
     exit(-1);
 
-  lock_acquire(&filesys_lock);
-  int length = file_length (thread_current ()->file_ptrs[fd]);
-  lock_release(&filesys_lock);
-
-  return length;
+  struct fd_entry *fde = get_fd_entry (fd);
+  if (fde->is_dir)
+    exit(-1);
+  return file_length ((struct file *) fde->file);
 }
 
 static int
 read (int fd, void *buffer, unsigned length)
 {
-  struct thread *t = thread_current ();
-  if (fd == 1 || fd >= MAX_FD_INDEX+1 || 
-      (t->file_ptrs[fd] == NULL && fd != 0))
-    exit(-1);
-
-  if (!mem_valid(buffer, length)) 
+  if (fd == 1 || !mem_valid(buffer, length)) 
     exit(-1);
 
   if (length == 0)
     return 0;
 
   if (fd == 0) {
-    int index = 0;
+    int read_len = 0;
     char c;
-    while ((unsigned) index != length) {
+    while ((unsigned) read_len != length) {
       c = input_getc();
-      memcpy (buffer + index, &c, 1);
-      index++;
-    }    
-    return index;
+      memcpy (buffer + read_len, &c, 1);
+      read_len++;
+    }
+    return read_len;
   }
 
-  lock_acquire(&filesys_lock);
-  int read_len = file_read (t->file_ptrs[fd], buffer, length);
-  lock_release(&filesys_lock);
-
-  return read_len;
+  struct fd_entry *fde = get_fd_entry (fd);
+  if (fde->is_dir)
+    return 0;
+  return file_read ((struct file *) fde->file, buffer, length);
 }
 
 static int
 write (int fd, const void *buffer, unsigned length)
 {
-  struct thread *t = thread_current();
-  if (fd == 0 || fd >=  MAX_FD_INDEX+1 ||
-      (t->file_ptrs[fd] == NULL && fd != 1))
-    exit(-1);   
-  
-  if (!mem_valid(buffer, length))
+  if (fd == 0 || !mem_valid(buffer, length))
     exit(-1);
 
   if (length == 0) 
     return 0;
 
   if (fd == 1) {
-    int num_writes = length / MAX_WRITE_SIZE + 1;
-    const void *src = buffer;
+    int num_writes = length / MAX_WRITE_SIZE;
+    if (length % MAX_WRITE_SIZE > 0)
+      num_writes++;
     while (num_writes > 0) {
       if (num_writes == 1) { 
-        putbuf (src, length % MAX_WRITE_SIZE);
+        putbuf (buffer, length % MAX_WRITE_SIZE);
       } else {
-        putbuf(src, MAX_WRITE_SIZE);
-        src += MAX_WRITE_SIZE;
+        putbuf (buffer, MAX_WRITE_SIZE);
+        buffer += MAX_WRITE_SIZE;
       }
       num_writes--;
     }
-
     return length;
-  } 
+  }
   
-  lock_acquire(&filesys_lock);
-  int write_len = file_write (t->file_ptrs[fd], buffer, length);
-  lock_release(&filesys_lock);
-
-  return write_len;
+  struct fd_entry *fde = get_fd_entry (fd);
+  if (fde->is_dir)
+    return 0;
+  return file_write ((struct file *) fde->file, buffer, length);
 }
 
 static void
 seek (int fd, unsigned position)
 {
-  struct thread *t = thread_current ();
-  if (fd == 0 || fd == 1 || fd >= MAX_FD_INDEX + 1|| t->file_ptrs[fd] == NULL)
+  if (fd == 0 || fd == 1)
     exit(-1); 
   
-  lock_acquire(&filesys_lock); 
-  file_seek (t->file_ptrs[fd], position);
-  lock_release(&filesys_lock);
+  struct fd_entry *fde = get_fd_entry (fd);
+  if (fde->is_dir)
+    return;
+  file_seek ((struct file *) fde->file, position);
 }
 
 static unsigned
 tell (int fd)
 {
-  struct thread *t = thread_current ();
-  if (fd == 0 || fd == 1 || fd >= MAX_FD_INDEX + 1 || t->file_ptrs[fd] == NULL)
-     exit(-1); 
+  if (fd == 0 || fd == 1)
+    exit(-1); 
   
-  lock_acquire(&filesys_lock);
-  int position = file_tell(t->file_ptrs[fd]);
-  lock_release(&filesys_lock);
-
-  return position;
+  struct fd_entry *fde = get_fd_entry (fd);
+  if (fde->is_dir)
+    exit(-1);
+  return file_tell ((struct file *) fde->file);
 }
 
 static void
 close (int fd)
 {
-  struct thread *t = thread_current ();
-  if (fd == 0 || fd == 1 || fd >= MAX_FD_INDEX + 1 || t->file_ptrs[fd] == NULL)
+  if (fd == 0 || fd == 1)
      return; 
 
-  lock_acquire(&filesys_lock);
-  file_close (t->file_ptrs[fd]);
-  lock_release(&filesys_lock);
+  struct fd_entry *fde = get_fd_entry (fd);
+  if (fde->is_dir)
+    dir_close ((struct dir *) fde->file);
+  else
+    file_close ((struct file *) fde->file);
 
-  t->file_ptrs[fd] = NULL;
-  t->next_open_file_index = fd;
+  list_remove (&fde->l_elem);
+  hash_delete (&thread_current ()->fd_hash, &fde->h_elem); 
 }
 
+static bool 
+chdir (const char *dir)
+{
+  if (!str_valid (dir))
+    exit(-1);
 
+  bool is_dir;
+  struct dir *new_dir = filesys_open (dir, &is_dir);
+  if (new_dir == NULL || !is_dir)
+    return false;
+
+  thread_current ()->pwd = inode_get_inumber (dir_get_inode (new_dir));
+  dir_close (new_dir);
+  return true;
+}
+
+static bool 
+mkdir (const char *dir)
+{
+  if (!str_valid (dir))
+    exit(-1);
+
+  printf ("inside mkdir\n");
+
+  if (!filesys_create (dir, 0, true)) {
+    printf ("mkdir failure\n");
+    return false;
+  }  
+
+  printf ("mkdir success\n");
+  return true;
+}
+
+static bool 
+readdir (int fd, char *name)
+{
+  if (!mem_valid (name, NAME_MAX + 1))
+    exit(-1);
+
+  struct fd_entry *fde = get_fd_entry (fd);
+  if (!fde->is_dir)
+    return false;
+  return dir_readdir ((struct dir *) fde->file, name);
+}
+
+static bool 
+isdir (int fd)
+{
+  struct fd_entry *fde = get_fd_entry (fd);
+  return fde->is_dir;
+}
+
+static int 
+inumber (int fd)
+{
+  struct fd_entry *fde = get_fd_entry (fd);
+  struct inode *inode;
+  if (fde->is_dir) {
+    struct dir *dir = (struct dir *) fde->file;
+    inode = dir_get_inode (dir);
+  } else {
+    struct file *file = (struct file *) fde->file;
+    inode = file_get_inode (file);
+  }
+  return inode_get_inumber (inode);
+}

@@ -4,6 +4,8 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include "filesys/directory.h"
+#include "filesys/filesys.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -158,6 +160,22 @@ thread_print_stats (void)
           idle_ticks, kernel_ticks, user_ticks);
 }
 
+static unsigned
+fd_hash_hash_func (const struct hash_elem *e, void *aux UNUSED)
+{
+  struct fd_entry *fde = hash_entry (e, struct fd_entry, h_elem);
+  return fde->fd;
+}
+
+static bool
+fd_hash_less_func (const struct hash_elem *a, const struct hash_elem *b,
+                void *aux UNUSED)
+{
+  struct fd_entry *fde_a = hash_entry (a, struct fd_entry, h_elem);
+  struct fd_entry *fde_b = hash_entry (b, struct fd_entry, h_elem);
+  return fde_a->fd < fde_b->fd;
+}
+
 /* Creates a new kernel thread named NAME with the given initial
    PRIORITY, which executes FUNCTION passing AUX as the argument,
    and adds it to the ready queue.  Returns the thread identifier
@@ -193,6 +211,7 @@ thread_create (const char *name, int priority,
   /* Initialize thread. */
   init_thread (t, name, priority);
   tid = t->tid = allocate_tid ();
+  hash_init (&t->fd_hash, &fd_hash_hash_func, &fd_hash_less_func, NULL);
 
   /* Stack frame for kernel_thread(). */
   kf = alloc_frame (t, sizeof *kf);
@@ -574,14 +593,15 @@ init_thread (struct thread *t, const char *name, int priority)
 
   /* the following for project 4 */
   if (t == initial_thread) {
-    t->curr_dir = dir_open_root ();
-    if (t->curr_dir == NULL)
-      PANIC ("open root dir failed");
+    t->pwd = ROOT_DIR_SECTOR;
   } else {
-    t->curr_dir = dir_reopen (thread_current ()->curr_dir);
-    if (t->curr_dir == NULL)
-      PANIC ("open process working dir failed");
+    t->pwd = thread_current ()->pwd;
   }
+
+  list_init (&t->fd_list);
+  //hash_init (&t->fd_hash, &fd_hash_hash_func, &fd_hash_less_func, NULL);
+  t->next_open_fd = 2;  // 0 and 1 reserved for stdin and stdout
+  t->num_open_files = 0;
 
   t->magic = THREAD_MAGIC;
 

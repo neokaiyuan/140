@@ -4,8 +4,10 @@
 #include <round.h>
 #include <string.h>
 #include "filesys/cache.h"
+#include "filesys/directory.h"
 #include "filesys/filesys.h"
 #include "filesys/free-map.h"
+#include "threads/thread.h"
 #include "threads/malloc.h"
 
 /* Identifies an inode. */
@@ -156,6 +158,13 @@ block_sector_t
 inode_get_inumber (const struct inode *inode)
 {
   return inode->sector;
+}
+
+/* Returns INODE's open count. */
+int
+inode_get_open_cnt (const struct inode *inode)
+{
+  return inode->open_cnt;
 }
 
 /* Closes INODE and writes it to disk.

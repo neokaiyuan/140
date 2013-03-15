@@ -121,11 +121,11 @@ add_evict_entry (block_sector_t sector_num)
 }
 
 /* Not thread safe, assumes a lock is already head: cache lock*/
-struct cache_entry *
+static struct cache_entry *
 find_evict_cache_entry (void) 
 {
   struct list_elem *e;
-  struct cache_entry *ce;
+  struct cache_entry *ce = NULL;
   while (true) {
     for (e = list_back (&cache_list); e != list_head (&cache_list); 
          e = list_prev (e)) {   // iterate backwards through list
@@ -133,14 +133,14 @@ find_evict_cache_entry (void)
       if (ce->pinned_cnt == 0)
         break;
     }   
-    if (ce->pinned_cnt == 0) {
+    if (ce != NULL && ce->pinned_cnt == 0) {
       break;
     }
   }
   return ce;
 }
 
-struct cache_entry * 
+static struct cache_entry * 
 add_to_cache (block_sector_t sector_num, bool zeroed)
 {
   lock_acquire (&cache_lock);
@@ -245,7 +245,7 @@ cache_read (block_sector_t sector_num, void *dest, int sector_ofs,
 }
 
 bool
-cache_write_at (block_sector_t sector_num, void *src, int sector_ofs, 
+cache_write_at (block_sector_t sector_num, const void *src, int sector_ofs, 
              int chunk_size)
 { 
   struct cache_entry *ce = add_to_cache (sector_num, false);
