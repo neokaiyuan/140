@@ -42,7 +42,9 @@ filesys_done (void)
   cache_destroy ();
 }
 
-static struct dir *
+struct dir *get_lowest_dir (const char *path);
+
+struct dir *
 get_lowest_dir (const char *path)
 {
   struct dir *upper_dir;
@@ -57,6 +59,9 @@ get_lowest_dir (const char *path)
       PANIC ("open process working directory failed");
   }
 
+  if (strchr (path, '/') == NULL)
+    return upper_dir;
+
   int path_len = strlen (path);
   if (path_len == 0)    // empty path
     return NULL;
@@ -68,8 +73,6 @@ get_lowest_dir (const char *path)
   char *token, *save_ptr;
   for (token = strtok_r (path_cpy, "/", &save_ptr); token != NULL;
        token = strtok_r (NULL, "/", &save_ptr)) {
-    if (strchr (save_ptr, '/') == NULL)
-      break;
     if (strcmp (token, ".") == 0)
       continue;
 
@@ -82,10 +85,13 @@ get_lowest_dir (const char *path)
     if (lower_dir == NULL)
       return NULL;
     upper_dir = lower_dir;
+
+    if (strchr (save_ptr, '/') == NULL)
+      break;
   }
   
-  if (token == NULL)    // case where path ends in '/'
-    return NULL;
+  //if (*save_ptr == '\0')    // case where path ends in '/'
+    //return NULL;
 
   return upper_dir; 
 }
@@ -112,8 +118,9 @@ filesys_create (const char *path, off_t initial_size, bool is_dir)
     return false;
   const char *filename = get_filename (path);
 
-  printf ("filename: %s\n", filename);
-  printf ("dir: %p\n", dir);
+  //printf ("filename: %s\n", filename);
+  //printf ("dir addr: %p\n", dir);
+  //printf ("dir sector: %d\n", inode_get_inumber (dir_get_inode(dir)));
 
   bool success;
   if (is_dir) {
@@ -130,8 +137,8 @@ filesys_create (const char *path, off_t initial_size, bool is_dir)
                dir_add (dir, filename, inode_sector, is_dir));
   }
 
-  printf ("finished adding dir\n");
-  printf ("success = %d\n", success);
+  //printf ("finished adding dir\n");
+  //printf ("success = %d\n", success);
 
   if (!success && inode_sector != 0) 
     free_map_release (inode_sector, 1);
@@ -149,6 +156,9 @@ filesys_create (const char *path, off_t initial_size, bool is_dir)
 void *
 filesys_open (const char *path, bool *is_dir)
 {
+  if (strcmp (path, "/") == 0)
+    return dir_open_root (); 
+
   struct dir *dir = get_lowest_dir (path);
   if (dir == NULL)
     return NULL;

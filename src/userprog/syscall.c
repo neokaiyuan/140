@@ -301,7 +301,7 @@ read (int fd, void *buffer, unsigned length)
 
   struct fd_entry *fde = get_fd_entry (fd);
   if (fde->is_dir)
-    return 0;
+    return -1;
   return file_read ((struct file *) fde->file, buffer, length);
 }
 
@@ -332,7 +332,7 @@ write (int fd, const void *buffer, unsigned length)
   
   struct fd_entry *fde = get_fd_entry (fd);
   if (fde->is_dir)
-    return 0;
+    return -1;
   return file_write ((struct file *) fde->file, buffer, length);
 }
 
@@ -398,14 +398,14 @@ mkdir (const char *dir)
   if (!str_valid (dir))
     exit(-1);
 
-  printf ("inside mkdir\n");
+  //printf ("inside mkdir\n");
 
   if (!filesys_create (dir, 0, true)) {
-    printf ("mkdir failure\n");
+    //printf ("mkdir failure\n");
     return false;
   }  
 
-  printf ("mkdir success\n");
+  //printf ("mkdir success\n");
   return true;
 }
 
