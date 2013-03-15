@@ -28,22 +28,18 @@ bool
 dir_create (block_sector_t sector, block_sector_t parent_sector, 
             size_t entry_cnt)
 {
-  //printf ("inside dir_create\n");
 
   if (!inode_create (sector, (entry_cnt + 100) * sizeof (struct dir_entry))) {
-    //printf ("failing inode_create\n");
     return false;
   }
 
   struct dir *dir = dir_open (inode_open (sector));
   if (dir == NULL) {
-    //printf ("failing dir_open\n");
     return false;
   }
 
   if (!dir_add (dir, ".", sector, true) || 
       !dir_add (dir, "..", parent_sector, true)) {
-    //printf ("failing dir_add\n");
     return false;
   }
 
@@ -165,7 +161,6 @@ dir_lookup (const struct dir *dir, const char *name,
 bool
 dir_add (struct dir *dir, const char *name, block_sector_t inode_sector, bool is_dir)
 {
-  //printf ("in dir_add\n");
 
   struct dir_entry e;
   off_t ofs;
@@ -176,13 +171,11 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector, bool is
 
   /* Check NAME for validity. */
   if (*name == '\0' || strlen (name) > NAME_MAX) {
-    //printf ("dir name empty or too long\n");
     goto done;
   }
 
   /* Check that NAME is not in use for any file or directory. */
   if (lookup (dir, name, NULL, NULL, false)) {
-    //printf ("dir already exists\n");
     goto done;
   }  
 
@@ -205,7 +198,6 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector, bool is
   e.inode_sector = inode_sector;
   success = inode_write_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
   if (success == false)
-    //printf ("inode_write_at failed\n");
 
   done:
     return success;

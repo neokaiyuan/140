@@ -42,9 +42,7 @@ filesys_done (void)
   cache_destroy ();
 }
 
-struct dir *get_lowest_dir (const char *path);
-
-struct dir *
+static struct dir *
 get_lowest_dir (const char *path)
 {
   struct dir *upper_dir;
@@ -118,10 +116,6 @@ filesys_create (const char *path, off_t initial_size, bool is_dir)
     return false;
   const char *filename = get_filename (path);
 
-  //printf ("filename: %s\n", filename);
-  //printf ("dir addr: %p\n", dir);
-  //printf ("dir sector: %d\n", inode_get_inumber (dir_get_inode(dir)));
-
   bool success;
   if (is_dir) {
     success = (dir != NULL && 
@@ -136,9 +130,6 @@ filesys_create (const char *path, off_t initial_size, bool is_dir)
                inode_create (inode_sector, initial_size) &&
                dir_add (dir, filename, inode_sector, is_dir));
   }
-
-  //printf ("finished adding dir\n");
-  //printf ("success = %d\n", success);
 
   if (!success && inode_sector != 0) 
     free_map_release (inode_sector, 1);

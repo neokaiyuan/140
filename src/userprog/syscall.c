@@ -398,14 +398,10 @@ mkdir (const char *dir)
   if (!str_valid (dir))
     exit(-1);
 
-  //printf ("inside mkdir\n");
-
   if (!filesys_create (dir, 0, true)) {
-    //printf ("mkdir failure\n");
     return false;
   }  
 
-  //printf ("mkdir success\n");
   return true;
 }
 
