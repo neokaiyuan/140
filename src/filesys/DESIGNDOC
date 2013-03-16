@@ -57,28 +57,33 @@ struct inode_disk
   .
   unint32_t unused[112]
 }
-  4a) direct_blocks
-      Used by the inode_disk via the inode to access the sectors of a file. Specifically
-      those in direct blocks.
-  4b) indirect_block
-      Used to access sectors of a file. It stores a disk sector number with BLOCK_SECTOR_SIZE /
-      (block_sector_t) sector numbers of a file.
-  4c) dual_indirect_block
-      It is used to indirectly access sectors of a file. 
 
-  4d) unint32_t unused[112] 
-      Used to pad the inode_disk so that is the size of a disk sector.
+  4a) direct_blocks
+      Used to directly access sectors of a file or directory on disk.
+  4b) indirect_block
+      Used to indirectly access sectors of a file or directory, access
+      a a sector on disk with direct_blocks. Grants flexiblity.
+  4c) dual_indirect_block
+      Used to indirectly access sector of a file or directory, access
+      to a sector on disk which has indirect_blocks which have direct
+      blocks.
+
+  4d) unint32_t unused[112]
+      Used to pad the inode_disk so it is size of a disk sector.
 
 5)
-struct inode 
+struct inode
 {   .
     .
     .
+    //struct inode_disk data //delete
     struct lock lock
 }
   5a) struct lock lock
-      Used to sychronize writes of a file/inode. Acquired when a file is being 
+      Used to sychronize writes of a file/inode. Acquired when a file is being
       extended.
+  5b) struct inode_disk data //delete
+      Delete because the inode is now on disk/ in the cache. Done to save stpace
 
   6) static struct lock open_inode_lock
      Used to sychronize the list of open inodes.
@@ -228,8 +233,19 @@ any data in a dir_entry and release it after any reads or edits.
 
 Doing this will allow processes to access directory entries sequentially,
 but not simultaneously. Therefore no simultaneous attempts to remove a
-single file should succeed, neither should 2 simultaneous attempts to
-do create a file with the same name.
+single file should succeed.
+
+For the case of simultaneous attempts to create a file with the same name,
+this must be handled slighly differently. There can be no race in between
+the lookup of a file with that name and creating the file. Thus we need to
+employ a locking mechanism around that, which releases just after the 
+dir_entry is written to disk. 
+
+Thus we keep both a dir lock and a dir_entry lock. One so that accesses
+to specific dir_entries such as removing a file do not have race conditions,
+and one so that accesses that affect an entire directory do not have race
+conditions, such as two processes adding a file of the same name to a
+directory.
 
 >> B5: Does your implementation allow a directory to be removed if it
 >> is open by a process or if it is in use as a process's current
@@ -334,6 +350,7 @@ represents 30 seconds.
 
 >> C2: Describe how your cache replacement algorithm chooses a cache
 >> block to evict.
+
 Our code for this is in find_evict_cache_entry. As the name suggests, we 
 iterate through our cache_list, and when we see an entry that is not pinned, 
 we select it and return it to the caller. It is important to note that we only
@@ -344,6 +361,7 @@ front are the most recently used, while the elements in the back are least
 recently used. We always evict the least recently used non-pinned block.
 
 >> C3: Describe your implementation of write-behind.
+
 We implement write-behind in two ways. First, we only write blocks to disk when
 they are evicted. Second, we flush the cache to disk every 30 seconds in a
 background thread whose sole purpose is to flush the cache every 30 seconds.

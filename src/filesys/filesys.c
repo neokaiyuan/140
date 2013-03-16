@@ -88,8 +88,8 @@ get_lowest_dir (const char *path)
       break;
   }
   
-  //if (*save_ptr == '\0')    // case where path ends in '/'
-    //return NULL;
+  if (*save_ptr == '\0')    // case where path ends in '/'
+    return NULL;
 
   return upper_dir; 
 }
@@ -191,7 +191,7 @@ filesys_remove (const char *path)
   dir_close (dir); 
   return success;
 }
-
+
 /* Formats the file system. */
 static void
 do_format (void)
