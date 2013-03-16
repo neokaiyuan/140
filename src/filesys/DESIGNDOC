@@ -305,6 +305,10 @@ struct cache_entry {
   bool pinned_cnt;
   char data[BLOCK_SECTOR_SIZE];
 };
+This is the struct we use to keep track of blocks currently in the cache.
+They have an l_elem and h_elem for both the list and the hash. The lock
+is to synchronize inbound I/Os, and the dirty bit is used for delayed writes.
+Pinning is used between selecting a cache_entry and reading from it.
 
 #define BLOCK_SECTOR_SIZE 512
 This is for convenience sake, stores a BLOCK_SIZE.
@@ -316,12 +320,45 @@ worth of data and metadata.
 #define FLUSH_INTERVAL 3000
 This defines the time we wait between flushing the cache. 3000
 represents 30 seconds.
+
 ---- ALGORITHMS ----
 
 >> C2: Describe how your cache replacement algorithm chooses a cache
 >> block to evict.
+Our code for this is in find_evict_cache_entry. As the name suggests, we 
+iterate through our cache_list, and when we see an entry that is not pinned, 
+we select it and return it to the caller. It is important to note that we only
+iterate backwards through our list.
+
+Our list is always sorted in order of recent usage. Namely, the elements in
+front are the most recently used, while the elements in the back are least
+recently used. We always evict the least recently used non-pinned block.
 
 >> C3: Describe your implementation of write-behind.
+We implement write-behind in two ways. First, we only write blocks to disk when
+they are evicted. Second, we flush the cache to disk every 30 seconds in a
+background thread whose sole purpose is to flush the cache every 30 seconds.
+
+When a process thinks it is writing to the disk, it will actually write to
+a cache entry corresponding to that sector number. When that sector of cache
+memory gets bumped to the back of the 64-entry-long list, it will be the next
+to be evicted unless it is pinned by a thread that wants it. Thus when
+a cache_entry gets less and less recently used it is closer to being written.
+However, if a cache entry such as the free_map_file is constantly being used,
+it will rarely get written back to disk from this method.
+
+This is why we have the periodic flush thread. Without this thread, if we did
+constantly used a file such as the free-map file and never wrote it to disk, and
+suddenly the system crashed, we would lose all data in that file.
+
+Our write behind thread executes timer_sleep, written in project 1, which
+calculates what timer tick it should wake up at, and sleeps for that period. 
+When it wakes up, it will flush the cache with cache_flush, which
+iterates through our cache and flushes the blocks iteratively. Synchronization
+is dealt with by holding on to the coarse lock until we can acquire
+a fine entry lock, and then pinning the entry between releasing the fine lock
+and acquiring the coarse lock again. Before releasing the fine lock we
+will write the block to disk.
 
 >> C4: Describe your implementation of read-ahead.
 
@@ -331,8 +368,38 @@ represents 30 seconds.
 >> buffer cache block, how are other processes prevented from evicting
 >> that block?
 
+We use a combination of pinning and locks to prevent other processes
+from evicting that block. When we read data into a buffer cache block,
+we first grab the coarse cache_lock until we find a block to evict
+or create a new block. Then we acquire the fine cache_entry lock,
+and increase the pinned count, before releasing the coarse lock,
+doing any I/Os, and returning that cache block to the user.
+
+
+
 >> C6: During the eviction of a block from the cache, how are other
 >> processes prevented from attempting to access the block?
+
+In the case of writing data from the buffer cache to disk, we have
+this notion of an evict_list and evict_entry. Before doing our evict I/O,
+we already remove the sector number from the cache_hash and cache_list.
+Thus no process will find that sector_num in the cache. Instead, we put
+that evicting sector_num in The evict_list, which
+stores evict_entries, which represent sectors that are currently
+being evicted. In cache_find, the function our system uses to find
+a free cache block, it will first search the hash of cache entries,
+and then search the list of evict_entries. If an element is in the
+evict_list it means it is currently being evicted.
+
+When a process finds that the block it wants is currently being evicted,
+i.e. finds it in the evict_list, it will wait on the io_complete condition
+variable in the evict_entry. Before waiting it will increase the count of
+waiters on that evict_entry. After waiting it will decrease that count again.
+If, at the end of its wait there are no more waiters left, it will free
+the evict_entry. For a cache_block that has nobody waiting on it, once it
+is finished evicting, it will remove and free its own evict_entry from
+the evict_list. 
+
 
 ---- RATIONALE ----
 
