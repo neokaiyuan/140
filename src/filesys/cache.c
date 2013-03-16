@@ -12,7 +12,6 @@ static struct list cache_list;
 static struct hash cache_hash;
 static struct lock cache_lock;
 static struct list evict_list; // incoming I/Os taken care of by ce->lock
-//static struct lock io_lock;
 static int cache_size;
 
 /*//READ AHEAD
@@ -57,7 +56,6 @@ cache_init ()
   hash_init (&cache_hash, &cache_hash_hash_func, &cache_hash_less_func, NULL);
   lock_init (&cache_lock);
   list_init (&evict_list);
-  //lock_init (&io_lock);
   cache_size = 0;
 
   /*// READ AHEAD
@@ -246,7 +244,7 @@ cache_unpin (struct cache_entry *ce)
 }
 
 bool
-cache_read (block_sector_t sector_num, void *dest, int sector_ofs, 
+cache_read_at (block_sector_t sector_num, void *dest, int sector_ofs, 
            int chunk_size)
 { 
   struct cache_entry *ce = add_to_cache (sector_num, false);

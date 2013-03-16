@@ -84,7 +84,6 @@ struct inode
      Used to sychronize the list of open inodes.
 
 
-
 >> A2: What is the maximum size of a file supported by your inode
 >> structure?  Show your work.
   
@@ -176,10 +175,44 @@ struct inode
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+/* A single directory entry. */
+struct dir_entry
+  {
+    block_sector_t inode_sector;        /* Sector number of header. */
+    char name[NAME_MAX + 1];            /* Null terminated file name. */
+    bool in_use;                        /* In use or free? */
+    bool is_dir;                        /* directory or file? */
+  };
+We added is_dir to let the inode know if the file represented by this dir_entry
+is a file or a directory.
+
 ---- ALGORITHMS ----
 
 >> B2: Describe your code for traversing a user-specified path.  How
 >> do traversals of absolute and relative paths differ?
+
+Code for traversing a path is in the function get_lowest_dir in
+filesys.c. Code for getting the filename at the end of the path is
+in get_filename in filesys.c. We do not allow opening paths that end in
+'/'.
+
+Our code for traversing a user-specified path first preens off any
+preceding '/'s. If the path begins with a '/', we open the root
+directory as the upper dir. If not we open the current thread's pwd.
+Then we make a copy of the path and use strtok to get each individual
+token. We need to make a copy so that the user specified path is not
+modified. With each token we open a subsequent directory and close the
+preceding one. If at any point this fails, for example if the specified
+token is not a directory belonging in the preceding one, the function
+returns NULL. At the second last token, if the next token (pointed to
+by save_ptr) is not followed by a '/', we will break and return the
+directory enclosing the last element in the pathname.
+
+Once we return the directory enclosing the lowest element, all of the
+filesys functions that take a pathname can find the filename of the
+file they wish to use with strrchr. This is done in get_filename.
+If the path does not contain a '/', we simply use the path as the filename.
+If the path does contain a '/', we return the char addr one after the '/'.
 
 ---- SYNCHRONIZATION ----
 
@@ -188,15 +221,40 @@ struct inode
 >> should succeed, as should only one of two simultaneous attempts to
 >> create a file with the same name, and so on.
 
+
+
 >> B5: Does your implementation allow a directory to be removed if it
 >> is open by a process or if it is in use as a process's current
 >> working directory?  If so, what happens to that process's future
 >> file system operations?  If not, how do you prevent it?
 
+We do not allow a directory to be removed if it is open by a process
+or in use as a pwd. We check that it is open or used as a pwd with the
+inode open count of the directory, which can be retrieved by our function
+inode_get_open_cnt in inode.c. If the count is greater than 1 (because
+we have opened the directory to check its open count), we return false.
+This code is in dir_remove in directory.c.
+
 ---- RATIONALE ----
 
 >> B6: Explain why you chose to represent the current directory of a
 >> process the way you did.
+
+We chose to represent the current directory of a process by storing
+the sector number of the directory in processes' thread struct.
+This gives us flexibility on when to open the directory.
+
+In our initial implementation we stored struct dir *'s in the thread
+struct, but this proved inconvenient because at the point when we wished
+to open the directory for the initial and starter thread in thread_init
+and thread_start, the file system had not yet been initialized.
+Thus we decided to store the root sector for the initial thread instead
+of a struct dir * for the root directory, due to inconvenience during
+initialization.
+
+It is never hard to get from a sector number to a directory. We need only
+invoke the functions inode_open and dir_open to get the struct dir *
+from a sector number.
 
            BUFFER CACHE
            ============
@@ -207,14 +265,118 @@ struct inode
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+static struct list cache_list;
+This list is used to keep track of elements in the cache.
+
+static struct hash cache_hash;
+This is used for constant lookup of elements in the cache.
+
+static struct lock cache_lock;
+This is used to synchronize the cache, and grabbed every time we are
+searching for a cache entry.
+
+static struct list evict_list; // incoming I/Os taken care of by ce->lock
+This is the list used to synchronize outgoing I/O's. Any sectors
+undergoing outgoing I/O are added to this list.
+
+static int cache_size;
+This is our way of storing the number of elements in our hash
+without using list_size (linear) and in order to synchronize the
+cache size. We call hash_remove and hash_insert when we wish the
+size to be constant, so cannot use hash_size.
+
+struct evict_entry {
+  block_sector_t sector_num;
+  struct list_elem elem;
+  struct condition io_complete;
+  int num_waiters;
+};
+This entry is stored in the evict_list. It stores the sector
+numbers of elements that are currently being evicted, and the
+condition io_complete is broadcasted upon I/O complete. The
+evict_entry is deleted when there are no more waiters on it
+after a block_write.
+
+struct cache_entry {
+  block_sector_t sector_num;
+  struct list_elem l_elem;
+  struct hash_elem h_elem;
+  struct lock lock;
+  bool dirty;
+  bool pinned_cnt;
+  char data[BLOCK_SECTOR_SIZE];
+};
+This is the struct we use to keep track of blocks currently in the cache.
+They have an l_elem and h_elem for both the list and the hash. The lock
+is to synchronize inbound I/Os, and the dirty bit is used for delayed writes.
+Pinning is used between selecting a cache_entry and reading from it.
+
+#define BLOCK_SECTOR_SIZE 512
+This is for convenience sake, stores a BLOCK_SIZE.
+
+#define MAX_CACHE_SIZE 64
+This stores the MAX_CACHE_SIZE. We can only store at most 64 blocks
+worth of data and metadata.
+
+#define FLUSH_INTERVAL 3000
+This defines the time we wait between flushing the cache. 3000
+represents 30 seconds.
+
 ---- ALGORITHMS ----
 
 >> C2: Describe how your cache replacement algorithm chooses a cache
 >> block to evict.
+Our code for this is in find_evict_cache_entry. As the name suggests, we 
+iterate through our cache_list, and when we see an entry that is not pinned, 
+we select it and return it to the caller. It is important to note that we only
+iterate backwards through our list.
+
+Our list is always sorted in order of recent usage. Namely, the elements in
+front are the most recently used, while the elements in the back are least
+recently used. We always evict the least recently used non-pinned block.
 
 >> C3: Describe your implementation of write-behind.
+We implement write-behind in two ways. First, we only write blocks to disk when
+they are evicted. Second, we flush the cache to disk every 30 seconds in a
+background thread whose sole purpose is to flush the cache every 30 seconds.
+
+When a process thinks it is writing to the disk, it will actually write to
+a cache entry corresponding to that sector number. When that sector of cache
+memory gets bumped to the back of the 64-entry-long list, it will be the next
+to be evicted unless it is pinned by a thread that wants it. Thus when
+a cache_entry gets less and less recently used it is closer to being written.
+However, if a cache entry such as the free_map_file is constantly being used,
+it will rarely get written back to disk from this method.
+
+This is why we have the periodic flush thread. Without this thread, if we did
+constantly used a file such as the free-map file and never wrote it to disk, and
+suddenly the system crashed, we would lose all data in that file.
+
+Our write behind thread executes timer_sleep, written in project 1, which
+calculates what timer tick it should wake up at, and sleeps for that period. 
+When it wakes up, it will flush the cache with cache_flush, which
+iterates through our cache and flushes the blocks iteratively. Synchronization
+is dealt with by holding on to the coarse lock until we can acquire
+a fine entry lock, and then pinning the entry between releasing the fine lock
+and acquiring the coarse lock again. Before releasing the fine lock we
+will write the block to disk.
 
 >> C4: Describe your implementation of read-ahead.
+
+  We have a read-ahead list, which contains the block sector number of
+  the file block and a list elem, a semaphore to synchronize retrieving
+  and adding to the read-ahead list, and a lock for the the list. 
+  A read-ahead thread is spawned in cache_init.
+  Upon calling cache_read_at on a block from inode_read_at, we also pass in
+  the block sector number for the next block in the file, if there is a next 
+block. Cache_read_at will create a read-ahead entry containing the block sector
+  number and add this entry to the read-ahead list. Upon adding to this list,
+  sema_up is called to notify the read-ahead thread to pop the front of the
+  read-ahead list and add the next sector block to the cache. The read-ahead
+  thread then sema-downs after every read-ahead entry popped from the list. 
+  With this implementation, the next block in the file is added to the 
+  read-ahead list everytime a read occurs, and the read-ahead thread will 
+  be waiting in the background to add the next blocks to the cache. 
 
 ---- SYNCHRONIZATION ----
 
@@ -222,13 +384,73 @@ struct inode
 >> buffer cache block, how are other processes prevented from evicting
 >> that block?
 
+We use a combination of pinning and locks to prevent other processes
+from evicting that block. When we read data into a buffer cache block,
+we first grab the coarse cache_lock until we find a block to evict
+or create a new block. Then we acquire the fine cache_entry lock,
+and increase the pinned count, before releasing the coarse lock. The
+cache_entry stays pinned while any inbound I/Os are happening on its 
+sector number and while we memcpy the data into the user buffer. The
+entry is unpinned from cache_read_at, cache_write 
+
+In order to prevent other processes from accessing that sector number
+while it is being read in from disk, the fine cache_entry lock is used.
+
+In order to prevent other processes from evicting that sector number
+while it is being read in from disk, the pinning mechanism is used.
+
+In all cases, in order to even use the cache_hash or cache_list, a 
+process must acquire the cache_lock. Thus there are no race conditions
+in the process of acquiring the fine cache_entry lock or pinning.
+
 >> C6: During the eviction of a block from the cache, how are other
 >> processes prevented from attempting to access the block?
+
+In the case of writing data from the buffer cache to disk, we have
+this notion of an evict_list and evict_entry. Before doing our evict I/O,
+we already remove the sector number from the cache_hash and cache_list.
+Thus no process will find that sector_num in the cache. Instead, we put
+that evicting sector_num in The evict_list, which
+stores evict_entries, which represent sectors that are currently
+being evicted. In cache_find, the function our system uses to find
+a free cache block, it will first search the hash of cache entries,
+and then search the list of evict_entries. If an element is in the
+evict_list it means it is currently being evicted.
+
+When a process finds that the block it wants is currently being evicted,
+i.e. finds it in the evict_list, it will wait on the io_complete condition
+variable in the evict_entry. Before waiting it will increase the count of
+waiters on that evict_entry. After waiting it will decrease that count again.
+If, at the end of its wait there are no more waiters left, it will free
+the evict_entry. For a cache_block that has nobody waiting on it, once it
+is finished evicting, it will remove and free its own evict_entry from
+the evict_list. 
 
 ---- RATIONALE ----
 
 >> C7: Describe a file workload likely to benefit from buffer caching,
 >> and workloads likely to benefit from read-ahead and write-behind.
+
+ A file workload likely to benefit from buffer caching would be one in which
+ a number of files were constantly being read from and written to. In this
+scenario we would prevent a lot of I/Os, as without the buffer cache we
+would simply have synchronous writes of any changes to files, which is
+more inefficient.
+
+ As read-ahead reads in the next sector of the file, a file workload likely 
+ to benefit from read-ahead would be one that accesses data sequentially.
+ This way we get an extra thread reading the next block, which highly
+increases the likelihood of the user process finding the file block
+in the cache.
+
+ A file workload likely to benefit from write-behind would be one that writes
+ to file often. Since it writes to file often, we do not require many I/Os
+because that block will be constantly kept in the buffer cache.  
+
+ File workloads that open files, write a lot, but do not close those files 
+often also benefit from write behind, because during their lifespan their
+blocks are kept in the cache, but since we write to disk at regular intervals 
+we ensure data is saved regularly. 
 
          SURVEY QUESTIONS
          ================
