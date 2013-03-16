@@ -615,6 +615,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
     /* Sector to write, starting byte offset within sector. */
     block_sector_t sector_idx = byte_to_sector (inode, offset, file_length);
     if (sector_idx == -1) {
+      lock_release (&inode->lock);
       return 0;
     }
 
