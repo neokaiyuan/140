@@ -32,7 +32,7 @@ void cache_read_ahead (void);
 */
 void cache_init (void);
 
-bool cache_read (block_sector_t sector_num, void *dest, int sector_ofs,
+bool cache_read_at (block_sector_t sector_num, void *dest, int sector_ofs,
                  int chunk_size);
 bool cache_write_at (block_sector_t sector_num, const void *src, int sector_ofs,
                   int chunk_size);

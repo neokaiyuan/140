@@ -84,7 +84,6 @@ struct inode
      Used to sychronize the list of open inodes.
 
 
-
 >> A2: What is the maximum size of a file supported by your inode
 >> structure?  Show your work.
   
@@ -221,6 +220,8 @@ If the path does contain a '/', we return the char addr one after the '/'.
 >> only one of two simultaneous attempts to remove a single file
 >> should succeed, as should only one of two simultaneous attempts to
 >> create a file with the same name, and so on.
+
+
 
 >> B5: Does your implementation allow a directory to be removed if it
 >> is open by a process or if it is in use as a process's current
@@ -362,6 +363,21 @@ will write the block to disk.
 
 >> C4: Describe your implementation of read-ahead.
 
+  We have a read-ahead list, which contains the block sector number of
+  the file block and a list elem, a semaphore to synchronize retrieving
+  and adding to the read-ahead list, and a lock for the the list. 
+  A read-ahead thread is spawned in cache_init.
+  Upon calling cache_read_at on a block from inode_read_at, we also pass in
+  the block sector number for the next block in the file, if there is a next 
+block. Cache_read_at will create a read-ahead entry containing the block sector
+  number and add this entry to the read-ahead list. Upon adding to this list,
+  sema_up is called to notify the read-ahead thread to pop the front of the
+  read-ahead list and add the next sector block to the cache. The read-ahead
+  thread then sema-downs after every read-ahead entry popped from the list. 
+  With this implementation, the next block in the file is added to the 
+  read-ahead list everytime a read occurs, and the read-ahead thread will 
+  be waiting in the background to add the next blocks to the cache. 
+
 ---- SYNCHRONIZATION ----
 
 >> C5: When one process is actively reading or writing data in a
@@ -372,10 +388,20 @@ We use a combination of pinning and locks to prevent other processes
 from evicting that block. When we read data into a buffer cache block,
 we first grab the coarse cache_lock until we find a block to evict
 or create a new block. Then we acquire the fine cache_entry lock,
-and increase the pinned count, before releasing the coarse lock,
-doing any I/Os, and returning that cache block to the user.
+and increase the pinned count, before releasing the coarse lock. The
+cache_entry stays pinned while any inbound I/Os are happening on its 
+sector number and while we memcpy the data into the user buffer. The
+entry is unpinned from cache_read_at, cache_write 
 
+In order to prevent other processes from accessing that sector number
+while it is being read in from disk, the fine cache_entry lock is used.
 
+In order to prevent other processes from evicting that sector number
+while it is being read in from disk, the pinning mechanism is used.
+
+In all cases, in order to even use the cache_hash or cache_list, a 
+process must acquire the cache_lock. Thus there are no race conditions
+in the process of acquiring the fine cache_entry lock or pinning.
 
 >> C6: During the eviction of a block from the cache, how are other
 >> processes prevented from attempting to access the block?
@@ -400,11 +426,31 @@ the evict_entry. For a cache_block that has nobody waiting on it, once it
 is finished evicting, it will remove and free its own evict_entry from
 the evict_list. 
 
-
 ---- RATIONALE ----
 
 >> C7: Describe a file workload likely to benefit from buffer caching,
 >> and workloads likely to benefit from read-ahead and write-behind.
+
+ A file workload likely to benefit from buffer caching would be one in which
+ a number of files were constantly being read from and written to. In this
+scenario we would prevent a lot of I/Os, as without the buffer cache we
+would simply have synchronous writes of any changes to files, which is
+more inefficient.
+
+ As read-ahead reads in the next sector of the file, a file workload likely 
+ to benefit from read-ahead would be one that accesses data sequentially.
+ This way we get an extra thread reading the next block, which highly
+increases the likelihood of the user process finding the file block
+in the cache.
+
+ A file workload likely to benefit from write-behind would be one that writes
+ to file often. Since it writes to file often, we do not require many I/Os
+because that block will be constantly kept in the buffer cache.  
+
+ File workloads that open files, write a lot, but do not close those files 
+often also benefit from write behind, because during their lifespan their
+blocks are kept in the cache, but since we write to disk at regular intervals 
+we ensure data is saved regularly. 
 
          SURVEY QUESTIONS
          ================
