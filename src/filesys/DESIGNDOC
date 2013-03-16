@@ -221,7 +221,15 @@ If the path does contain a '/', we return the char addr one after the '/'.
 >> should succeed, as should only one of two simultaneous attempts to
 >> create a file with the same name, and so on.
 
+We prevent races on directory entries by having a lock in every
+directory entry. That lock is initialized every time we create a
+dir_entry in an open directory. We grab it before we read or edit
+any data in a dir_entry and release it after any reads or edits.
 
+Doing this will allow processes to access directory entries sequentially,
+but not simultaneously. Therefore no simultaneous attempts to remove a
+single file should succeed, neither should 2 simultaneous attempts to
+do create a file with the same name.
 
 >> B5: Does your implementation allow a directory to be removed if it
 >> is open by a process or if it is in use as a process's current

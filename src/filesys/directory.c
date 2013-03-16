@@ -11,6 +11,7 @@ struct dir
   {
     struct inode *inode;                /* Backing store. */
     off_t pos;                          /* Current position. */
+    struct lock lock;
   };
 
 /* A single directory entry. */
@@ -20,6 +21,7 @@ struct dir_entry
     char name[NAME_MAX + 1];            /* Null terminated file name. */
     bool in_use;                        /* In use or free? */
     bool is_dir;                        /* directory or file? */
+    struct lock lock;
   };
 
 /* Creates a directory with space for ENTRY_CNT entries in the
@@ -43,6 +45,7 @@ dir_create (block_sector_t sector, block_sector_t parent_sector,
     return false;
   }
 
+  lock_init (&dir->lock);
   dir_close (dir);
   return true;
 }
@@ -120,12 +123,16 @@ lookup (const struct dir *dir, const char *name,
        ofs += sizeof e) 
     if (e.in_use && !strcmp (name, e.name)) 
       {
-        if (need_dir && !e.is_dir)
+        //lock_acquire (&e.lock);
+        if (need_dir && !e.is_dir) {
+          //lock_release (&e.lock);
           return false;
+        }
         if (ep != NULL)
           *ep = e;
         if (ofsp != NULL)
           *ofsp = ofs;
+        //lock_release (&e.lock);
         return true;
       }
   return false;
@@ -175,6 +182,7 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector, bool is
   }
 
   /* Check that NAME is not in use for any file or directory. */
+  //lock_acquire (&dir->lock);
   if (lookup (dir, name, NULL, NULL, false)) {
     goto done;
   }  
@@ -192,11 +200,13 @@ dir_add (struct dir *dir, const char *name, block_sector_t inode_sector, bool is
       break;
 
   /* Write slot. */
+  //lock_init (&e.lock);
   e.in_use = true;
   e.is_dir = is_dir;
   strlcpy (e.name, name, sizeof e.name);
   e.inode_sector = inode_sector;
   success = inode_write_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
+  lock_release (&dir->lock);
   if (success == false)
 
   done:
@@ -267,6 +277,7 @@ dir_readdir (struct dir *dir, char name[NAME_MAX + 1])
       dir->pos += sizeof e;
       if (e.in_use && strcmp (e.name, ".") != 0 && strcmp (e.name, "..") != 0)
         {
+          
           strlcpy (name, e.name, NAME_MAX + 1);
           return true;
         } 
