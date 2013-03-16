@@ -176,10 +176,44 @@ struct inode
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+/* A single directory entry. */
+struct dir_entry
+  {
+    block_sector_t inode_sector;        /* Sector number of header. */
+    char name[NAME_MAX + 1];            /* Null terminated file name. */
+    bool in_use;                        /* In use or free? */
+    bool is_dir;                        /* directory or file? */
+  };
+We added is_dir to let the inode know if the file represented by this dir_entry
+is a file or a directory.
+
 ---- ALGORITHMS ----
 
 >> B2: Describe your code for traversing a user-specified path.  How
 >> do traversals of absolute and relative paths differ?
+
+Code for traversing a path is in the function get_lowest_dir in
+filesys.c. Code for getting the filename at the end of the path is
+in get_filename in filesys.c. We do not allow opening paths that end in
+'/'.
+
+Our code for traversing a user-specified path first preens off any
+preceding '/'s. If the path begins with a '/', we open the root
+directory as the upper dir. If not we open the current thread's pwd.
+Then we make a copy of the path and use strtok to get each individual
+token. We need to make a copy so that the user specified path is not
+modified. With each token we open a subsequent directory and close the
+preceding one. If at any point this fails, for example if the specified
+token is not a directory belonging in the preceding one, the function
+returns NULL. At the second last token, if the next token (pointed to
+by save_ptr) is not followed by a '/', we will break and return the
+directory enclosing the last element in the pathname.
+
+Once we return the directory enclosing the lowest element, all of the
+filesys functions that take a pathname can find the filename of the
+file they wish to use with strrchr. This is done in get_filename.
+If the path does not contain a '/', we simply use the path as the filename.
+If the path does contain a '/', we return the char addr one after the '/'.
 
 ---- SYNCHRONIZATION ----
 
@@ -193,10 +227,33 @@ struct inode
 >> working directory?  If so, what happens to that process's future
 >> file system operations?  If not, how do you prevent it?
 
+We do not allow a directory to be removed if it is open by a process
+or in use as a pwd. We check that it is open or used as a pwd with the
+inode open count of the directory, which can be retrieved by our function
+inode_get_open_cnt in inode.c. If the count is greater than 1 (because
+we have opened the directory to check its open count), we return false.
+This code is in dir_remove in directory.c.
+
 ---- RATIONALE ----
 
 >> B6: Explain why you chose to represent the current directory of a
 >> process the way you did.
+
+We chose to represent the current directory of a process by storing
+the sector number of the directory in processes' thread struct.
+This gives us flexibility on when to open the directory.
+
+In our initial implementation we stored struct dir *'s in the thread
+struct, but this proved inconvenient because at the point when we wished
+to open the directory for the initial and starter thread in thread_init
+and thread_start, the file system had not yet been initialized.
+Thus we decided to store the root sector for the initial thread instead
+of a struct dir * for the root directory, due to inconvenience during
+initialization.
+
+It is never hard to get from a sector number to a directory. We need only
+invoke the functions inode_open and dir_open to get the struct dir *
+from a sector number.
 
            BUFFER CACHE
            ============
@@ -207,6 +264,58 @@ struct inode
 >> `struct' member, global or static variable, `typedef', or
 >> enumeration.  Identify the purpose of each in 25 words or less.
 
+static struct list cache_list;
+This list is used to keep track of elements in the cache.
+
+static struct hash cache_hash;
+This is used for constant lookup of elements in the cache.
+
+static struct lock cache_lock;
+This is used to synchronize the cache, and grabbed every time we are
+searching for a cache entry.
+
+static struct list evict_list; // incoming I/Os taken care of by ce->lock
+This is the list used to synchronize outgoing I/O's. Any sectors
+undergoing outgoing I/O are added to this list.
+
+static int cache_size;
+This is our way of storing the number of elements in our hash
+without using list_size (linear) and in order to synchronize the
+cache size. We call hash_remove and hash_insert when we wish the
+size to be constant, so cannot use hash_size.
+
+struct evict_entry {
+  block_sector_t sector_num;
+  struct list_elem elem;
+  struct condition io_complete;
+  int num_waiters;
+};
+This entry is stored in the evict_list. It stores the sector
+numbers of elements that are currently being evicted, and the
+condition io_complete is broadcasted upon I/O complete. The
+evict_entry is deleted when there are no more waiters on it
+after a block_write.
+
+struct cache_entry {
+  block_sector_t sector_num;
+  struct list_elem l_elem;
+  struct hash_elem h_elem;
+  struct lock lock;
+  bool dirty;
+  bool pinned_cnt;
+  char data[BLOCK_SECTOR_SIZE];
+};
+
+#define BLOCK_SECTOR_SIZE 512
+This is for convenience sake, stores a BLOCK_SIZE.
+
+#define MAX_CACHE_SIZE 64
+This stores the MAX_CACHE_SIZE. We can only store at most 64 blocks
+worth of data and metadata.
+
+#define FLUSH_INTERVAL 3000
+This defines the time we wait between flushing the cache. 3000
+represents 30 seconds.
 ---- ALGORITHMS ----
 
 >> C2: Describe how your cache replacement algorithm chooses a cache
