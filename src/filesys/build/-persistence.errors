@@ -1,3 +1,0 @@
-Prototype mismatch: sub main::SIGVTALRM () vs none at /usr/class/cs140/x86_64/bin/pintos line 934.
-Constant subroutine SIGVTALRM redefined at /usr/class/cs140/x86_64/bin/pintos line 926.
-getting .tar failed (scratch disk tar archive ends unexpectedly)
