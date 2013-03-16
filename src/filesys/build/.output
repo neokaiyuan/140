@@ -1,0 +1,57 @@
+Copying tests/filesys/extended/dir-empty-name.output to scratch partition...
+qemu -hda /tmp/picwscTbNs.dsk -m 4 -net none -nographic -monitor null
+PiLo hda1
+Loading.........
+Kernel command line: -q -f extract run dir-empty-name-persistence
+Pintos booting with 4,096 kB RAM...
+383 pages available in kernel pool.
+383 pages available in user pool.
+Calibrating timer...  105,881,600 loops/s.
+hda: 5,040 sectors (2 MB), model "QM00001", serial "QEMU HARDDISK"
+hda1: 155 sectors (77 kB), Pintos OS kernel (20)
+hda2: 4,096 sectors (2 MB), Pintos file system (21)
+hda3: 6 sectors (3 kB), Pintos scratch (22)
+filesys: using hda2
+scratch: using hda3
+Formatting file system...done.
+Boot complete.
+Extracting ustar archive from scratch device into file system...
+Putting 'dir-empty-name.output' into the file system...
+Kernel PANIC at ../../filesys/fsutil.c:121 in fsutil_extract(): dir-empty-name.output: create failed
+Call stack: 0xc0027f91 0xc002da1e 0xc0020881.
+The `backtrace' program can make call stacks useful.
+Read "Backtraces" in the "Debugging Tools" chapter
+of the Pintos documentation for more information.
+Kernel PANIC recursion at ../../devices/timer.c:229 in real_time_sleep().
+Page fault at 0xb: not present error writing page in kernel context.
+Interrupt 0x0e (#PF Page-Fault Exception) at eip=0xc0028056
+ cr2=0000000b error=00000002
+ eax=00000007 ebx=c0034cc4 ecx=c000e04c edx=c0034cd0
+ esi=00000000 edi=00000000 esp=c00b8000 ebp=c000ec18
+ cs=0008 ds=0010 es=0010 ss=80a0
+Page fault at 0xccccccd0: not present error writing page in kernel context.
+Interrupt 0x0e (#PF Page-Fault Exception) at eip=0xc0028056
+ cr2=ccccccd0 error=00000002
+ eax=cccccccc ebx=c010704c ecx=c010704c edx=c010704c
+ esi=c0107000 edi=c0034aa0 esp=00000000 ebp=c000ea2c
+ cs=0008 ds=0010 es=0010 ss=4ad0
+Page fault at 0xcccccee4: not present error reading page in kernel context.
+Interrupt 0x0e (#PF Page-Fault Exception) at eip=0xc00228ef
+ cr2=cccccee4 error=00000000
+ eax=cccccee4 ebx=cccccccc ecx=0007800f edx=000003d4
+ esi=cccccee4 edi=c0031cb8 esp=00000001 ebp=c000e820
+ cs=0008 ds=0010 es=0010 ss=cccc
+Page fault at 0xccccccd8: not present error reading page in kernel context.
+Interrupt 0x0e (#PF Page-Fault Exception) at eip=0xc002d28a
+ cr2=ccccccd8 error=00000000
+ eax=c010704c ebx=c010704c ecx=0007800f edx=000003d4
+ esi=cccccccc edi=c0031cb8 esp=c010704c ebp=c000e684
+ cs=0008 ds=0010 es=0010 ss=1d6f
+Page fault at 0xccccccd8: not present error reading page in kernel context.
+Interrupt 0x0e (#PF Page-Fault Exception) at eip=0xc002d28a
+ cr2=ccccccd8 error=00000000
+ eax=c010704c ebx=c010704c ecx=0007800f edx=000003d4
+ esi=cccccccc edi=c0031cb8 esp=c010704c ebp=c000e4e8
+ cs=0008 ds=0010 es=0010 ss=1d6f
+Page fault at 0xccccccd8: not present error reading page in kernel context.
+Interrupt Simulation terminated due to kernel panic.

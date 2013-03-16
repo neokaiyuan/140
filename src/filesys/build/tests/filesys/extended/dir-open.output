@@ -1,0 +1,40 @@
+Copying tests/filesys/extended/dir-open to scratch partition...
+Copying tests/filesys/extended/tar to scratch partition...
+qemu -hda /tmp/502dQ21NPq.dsk -hdb tmp.dsk -m 4 -net none -nographic -monitor null
+PiLo hda1
+Loading.........
+Kernel command line: -q -f extract run dir-open
+Pintos booting with 4,096 kB RAM...
+383 pages available in kernel pool.
+383 pages available in user pool.
+Calibrating timer...  104,755,200 loops/s.
+hda: 1,008 sectors (504 kB), model "QM00001", serial "QEMU HARDDISK"
+hda1: 155 sectors (77 kB), Pintos OS kernel (20)
+hda2: 201 sectors (100 kB), Pintos scratch (22)
+hdb: 5,040 sectors (2 MB), model "QM00002", serial "QEMU HARDDISK"
+hdb1: 4,096 sectors (2 MB), Pintos file system (21)
+filesys: using hdb1
+scratch: using hda2
+Formatting file system...done.
+Boot complete.
+Extracting ustar archive from scratch device into file system...
+Putting 'dir-open' into the file system...
+Putting 'tar' into the file system...
+Erasing ustar archive...
+Executing 'dir-open':
+(dir-open) begin
+(dir-open) mkdir "xyzzy"
+(dir-open) open "xyzzy"
+(dir-open) write "xyzzy"
+(dir-open) write "xyzzy" (must return -1, actually -1)
+(dir-open) end
+dir-open: exit(0)
+Execution of 'dir-open' complete.
+Timer: 68 ticks
+Thread: 30 idle ticks, 36 kernel ticks, 2 user ticks
+hdb1 (filesys): 238 reads, 212 writes
+hda2 (scratch): 200 reads, 2 writes
+Console: 1117 characters output
+Keyboard: 0 keys pressed
+Exception: 0 page faults
+Powering off...

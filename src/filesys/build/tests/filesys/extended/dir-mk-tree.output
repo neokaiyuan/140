@@ -1,0 +1,39 @@
+Copying tests/filesys/extended/dir-mk-tree to scratch partition...
+Copying tests/filesys/extended/tar to scratch partition...
+qemu -hda /tmp/8GC9uAbjls.dsk -hdb tmp.dsk -m 4 -net none -nographic -monitor null
+PiLo hda1
+Loading.........
+Kernel command line: -q -f extract run dir-mk-tree
+Pintos booting with 4,096 kB RAM...
+383 pages available in kernel pool.
+383 pages available in user pool.
+Calibrating timer...  104,755,200 loops/s.
+hda: 1,008 sectors (504 kB), model "QM00001", serial "QEMU HARDDISK"
+hda1: 155 sectors (77 kB), Pintos OS kernel (20)
+hda2: 205 sectors (102 kB), Pintos scratch (22)
+hdb: 5,040 sectors (2 MB), model "QM00002", serial "QEMU HARDDISK"
+hdb1: 4,096 sectors (2 MB), Pintos file system (21)
+filesys: using hdb1
+scratch: using hda2
+Formatting file system...done.
+Boot complete.
+Extracting ustar archive from scratch device into file system...
+Putting 'dir-mk-tree' into the file system...
+Putting 'tar' into the file system...
+Erasing ustar archive...
+Executing 'dir-mk-tree':
+(dir-mk-tree) begin
+(dir-mk-tree) creating /0/0/0/0 through /3/2/2/3...
+(dir-mk-tree) open "/0/2/0/3"
+(dir-mk-tree) close "/0/2/0/3"
+(dir-mk-tree) end
+dir-mk-tree: exit(0)
+Execution of 'dir-mk-tree' complete.
+Timer: 91 ticks
+Thread: 30 idle ticks, 36 kernel ticks, 25 user ticks
+hdb1 (filesys): 300 reads, 514 writes
+hda2 (scratch): 204 reads, 2 writes
+Console: 1123 characters output
+Keyboard: 0 keys pressed
+Exception: 0 page faults
+Powering off...
